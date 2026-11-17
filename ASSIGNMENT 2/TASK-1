@@ -1,0 +1,285 @@
+Q1 – Building Text Under Load: String, StringBuilder or StringBuffer?
+
+
+1. Introduction
+A railway reservation system generates e-tickets by combining information such as PNR, passenger name, coach, berth, fare and journey details.
+
+Java provides three ways to create and modify strings:
+1. String: Immutable. Once created, its value cannot be changed. Every concatenation using + creates a new String object.
+2. StringBuilder: Mutable. It modifies the same character buffer without creating a new String object for every append. It is not thread-safe.
+3. StringBuffer: Mutable and synchronized. It is thread-safe, but synchronization can make it slower than StringBuilder.
+2. Prediction Before Implementation
+Approach	Expected behaviour	Reason
+String (+)	Slow for many fields	Creates new String objects during concatenation.
+StringBuilder	Fast	Appends data to a reusable mutable buffer.
+StringBuffer	Slightly slower than StringBuilder	Synchronization adds overhead.
+
+My prediction: For a small ticket, the difference will be negligible. For thousands of tickets containing many fields, StringBuilder should perform better than the other approaches.
+3. Three Designed Workloads
+I would test the following workloads:
+Workload	Number of tickets	Fields per ticket	Purpose
+Workload 1	1	6	Test a small ticket.
+Workload 2	10,000	50	Test heavy ticket generation.
+Workload 3	1,000	500	Test tickets containing many fields.
+
+These workloads help determine whether the difference increases with the number of tickets and fields.
+4. Java Implementation
+The following program implements all three approaches and measures execution time and approximate memory usage.
+
+public class RailwayTicketBenchmark {
+
+    static volatile long result;
+
+    interface Task {
+        long run();
+    }
+
+    // Approach 1: Using String +
+    static long usingString(int tickets, String[] fields) {
+        long total = 0;
+
+        for (int i = 0; i < tickets; i++) {
+            String ticket = "";
+
+            for (String field : fields) {
+                ticket = ticket + field + "|";
+            }
+
+            total += ticket.length();
+        }
+        return total;
+    }
+
+    // Approach 2: Using StringBuilder
+    static long usingStringBuilder(int tickets, String[] fields) {
+        long total = 0;
+
+        for (int i = 0; i < tickets; i++) {
+            StringBuilder ticket = new StringBuilder();
+
+            for (String field : fields) {
+                ticket.append(field).append("|");
+            }
+
+            String output = ticket.toString();
+            total += output.length();
+        }
+        return total;
+    }
+
+    // Approach 3: Using StringBuffer
+    static long usingStringBuffer(int tickets, String[] fields) {
+        long total = 0;
+
+        for (int i = 0; i < tickets; i++) {
+            StringBuffer ticket = new StringBuffer();
+
+            for (String field : fields) {
+                ticket.append(field).append("|");
+            }
+
+            String output = ticket.toString();
+            total += output.length();
+        }
+        return total;
+    }
+
+    // Measuring execution time and memory
+    static void measure(String name, Task task) {
+
+        // Warm-up
+        for (int i = 0; i < 2; i++) {
+            result = task.run();
+        }
+
+        long totalTime = 0;
+
+        System.gc();
+
+        Runtime runtime = Runtime.getRuntime();
+
+        long memoryBefore =
+            runtime.totalMemory() - runtime.freeMemory();
+
+        for (int i = 0; i < 5; i++) {
+
+            long start = System.nanoTime();
+
+            result = task.run();
+
+            long end = System.nanoTime();
+
+            totalTime += (end - start);
+        }
+
+        long memoryAfter =
+            runtime.totalMemory() - runtime.freeMemory();
+
+        System.out.println(name);
+
+        System.out.println("Average Time: "
+            + (totalTime / 5) + " ns");
+
+        System.out.println("Approximate Memory Change: "
+            + (memoryAfter - memoryBefore) + " bytes");
+
+        System.out.println();
+    }
+
+    // Testing different workloads
+    static void testWorkload(int tickets, int fieldCount) {
+
+        String[] fields = new String[fieldCount];
+
+        for (int i = 0; i < fieldCount; i++) {
+            fields[i] = "Field" + (i + 1);
+        }
+
+        System.out.println("\nTickets: " + tickets);
+        System.out.println("Fields: " + fieldCount);
+
+        measure("String (+)",
+            () -> usingString(tickets, fields));
+
+        measure("StringBuilder",
+            () -> usingStringBuilder(tickets, fields));
+
+        measure("StringBuffer",
+            () -> usingStringBuffer(tickets, fields));
+    }
+
+    public static void main(String[] args) {
+
+        // Workload 1: Small ticket
+        testWorkload(1, 6);
+
+        // Workload 2: Heavy ticket generation
+        testWorkload(10000, 50);
+
+        // Workload 3: Large number of fields
+        testWorkload(1000, 500);
+    }
+}
+How to execute:
+1. Open VS Code.
+2. Create a Java file named RailwayTicketBenchmark.java.
+3. Copy the above program.
+4. Run the program.
+5. Record the execution time and approximate memory change for all three approaches.
+Note: Memory readings are approximate because Java garbage collection and JVM memory management affect the results. For more reliable benchmarking, JMH (Java Microbenchmark Harness) can be used.
+5. Expected Results and Observations
+The following is the expected performance trend, not fabricated benchmark measurements. Your actual measurements should be recorded after running the program on your computer.
+Workload	String (+)	StringBuilder	StringBuffer
+1 ticket, 6 fields	Fast	Fast	Fast
+10,000 tickets, 50 fields	Slowest expected	Fastest expected	Slightly slower than StringBuilder
+1,000 tickets, 500 fields	Much slower expected	Fastest expected	Slightly slower than StringBuilder
+
+Expected observations:
+- String performs reasonably for small tickets because only a few concatenations are required.
+- String becomes inefficient when the number of fields increases because every concatenation creates a new String.
+- StringBuilder performs better because it modifies its internal buffer.
+- StringBuffer has similar functionality to StringBuilder but synchronization introduces additional overhead.
+Intermediate String Objects Created
+For a ticket containing n fields:
+Approach	Intermediate objects
+String	Approximately O(n) new String results per ticket
+StringBuilder	No new String for each append; one final String when toString() is called
+StringBuffer	No new String for each append; one final String when toString() is called
+
+The String approach also produces repeated temporary character data. The builder approaches reuse their internal buffers.
+
+Small correction to the benchmark: To measure the creation of the final printable ticket, change the two builder approaches to use toString() before measuring the length:
+String output = ticket.toString();
+total += output.length();
+Use this in both the StringBuilder and StringBuffer methods instead of total += ticket.length();.
+6. Comparison of Prediction and Observed Behaviour
+My prediction is that StringBuilder will perform better for large workloads, while the difference between the three approaches will be small for a short ticket.
+
+After running the program, the measured execution times can be compared with this prediction.
+
+If the results show that StringBuilder is faster for large workloads, the prediction is supported. If the differences are small, JVM optimizations, hardware and garbage collection may have influenced the measurements.
+7. Design Decision – Multithreaded Booking Server
+The railway reservation system has two different requirements.
+
+A. Per-ticket text – StringBuilder
+
+I recommend StringBuilder because:
+- Each thread can create its own ticket independently.
+- It is faster than StringBuffer because it does not use synchronization.
+- It avoids unnecessary intermediate String objects.
+- It is suitable for building large tickets efficiently.
+B. Shared booking log – StringBuffer
+
+I would consider StringBuffer for a shared booking log because:
+- Multiple threads may append booking information.
+- Its append methods are synchronized.
+- It helps prevent simultaneous modifications from interfering with each other.
+However, if an entire booking-log entry requires multiple append operations, those operations should be protected by one synchronized block or another locking mechanism. StringBuffer does not automatically make a sequence of multiple operations atomic.
+
+Final recommendation:
+Requirement	Recommended class
+Individual e-ticket	StringBuilder
+Shared booking log	StringBuffer
+
+8. Alternative Concept and Complexity Analysis
+Instead of StringBuilder, we can use String.join(), StringJoiner or String.format().
+
+Alternative 1: String.join()
+String ticket = String.join("|", fields);
+String.join() combines all elements of an array using the specified delimiter.
+
+Alternative 2: StringJoiner
+import java.util.StringJoiner;
+
+StringJoiner ticket = new StringJoiner("|");
+
+for (String field : fields) {
+    ticket.add(field);
+}
+
+String output = ticket.toString();
+StringJoiner provides a convenient way to join multiple strings with a delimiter.
+
+Alternative 3: String.format()
+String ticket = String.format(
+    "PNR: %s | Name: %s | Coach: %s",
+    "123456", "Arun", "S2"
+);
+String.format() is useful when the output requires a fixed format, but it is generally less suitable for repeatedly building large tickets because of formatting overhead.
+Time Complexity Analysis
+Let n represent the number of fields and assume each field has approximately equal length.
+Approach	Time complexity	Explanation
+String (+)	O(n²)	Repeatedly copies the growing string.
+StringBuilder	O(n)	Appends fields to a mutable buffer.
+StringBuffer	O(n)	Appends fields with synchronization overhead.
+String.join()	O(n)	Processes and combines the fields.
+StringJoiner	O(n)	Adds elements to a mutable internal structure.
+String.format()	Depends on formatting	Formatting and conversion introduce additional overhead.
+
+Strictly speaking, if the total number of characters across all fields is L, StringBuilder and String.join() take O(L) time, while repeated concatenation can take O(nL) in the equal-sized-field case.
+Space Complexity Analysis
+- String: Creates multiple intermediate String objects, resulting in O(n²) cumulative character allocation for equal-sized fields.
+- StringBuilder: Uses an internal buffer and creates one final String, requiring O(L) space.
+- StringBuffer: Uses an internal mutable buffer and creates one final String, requiring O(L) space.
+- String.join(): Requires O(L) space for the resulting String.
+- StringJoiner: Requires O(L) space for its internal contents and final result.
+9. Conclusion
+From this investigation, I conclude that the choice of String, StringBuilder and StringBuffer matters significantly when generating a large number of railway tickets.
+
+String is suitable for simple and small text operations. StringBuilder is the best choice for generating individual e-tickets because it offers better performance and efficient memory usage. StringBuffer is useful when multiple threads need synchronized access to a shared string buffer.
+
+Therefore, I recommend using StringBuilder for individual e-tickets and StringBuffer with appropriate synchronization for shared booking logs.
+10. Measurement Table for Your Practical Record
+Fill this table using the actual output from your Java program.
+Workload	Approach	Average time (ns)	Memory change (bytes)
+1 ticket, 6 fields	String	___	___
+	StringBuilder	___	___
+	StringBuffer	___	___
+10,000 tickets, 50 fields	String	___	___
+	StringBuilder	___	___
+	StringBuffer	___	___
+1,000 tickets, 500 fields	String	___	___
+	StringBuilder	___	___
+	StringBuffer	___	___
+
+Important: The benchmark provides approximate heap changes, not the exact number of bytes allocated by each approach. For a rigorous memory-allocation comparison, use a profiler or JMH with allocation measurements.
