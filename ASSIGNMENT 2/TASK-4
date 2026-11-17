@@ -1,0 +1,514 @@
+Q4 – Choosing a Map for a Pharmacy Inventory
+1. Introduction
+A hospital pharmacy maintains medicine stock using medicine codes. Pharmacists frequently search for medicines, and the system generates two reports every evening:
+1. A report of medicines sorted by medicine code.
+2. A report of medicines in the order they were added.
+Java provides three important Map implementations:
+- HashMap: Stores key-value pairs and provides fast average lookup, but does not guarantee ordering.
+- TreeMap: Stores entries in sorted key order.
+- LinkedHashMap: Maintains insertion order while storing key-value pairs.
+2. Expected Performance Before Implementation
+Operation	HashMap	TreeMap	LinkedHashMap
+put()	O(1) average	O(log n)	O(1) average
+get()	O(1) average	O(log n)	O(1) average
+Iteration	O(n)	O(n)	O(n)
+Code-order report	Requires sorting	Naturally sorted	Requires sorting
+Insertion-order report	No guarantee	Not preserved	Naturally ordered
+
+Which Map Produces Each Report?
+Requirement	Best choice	Reason
+Medicines in code order	TreeMap	Automatically sorts keys
+Medicines in insertion order	LinkedHashMap	Preserves insertion order
+Frequent stock lookups	HashMap	Fast average lookup
+
+Extra work when the wrong map is chosen:
+- HashMap requires sorting the medicine codes before producing the code-order report.
+- LinkedHashMap also requires sorting to generate a code-order report.
+- TreeMap requires additional work to reproduce insertion order because it stores entries according to sorted keys rather than insertion order.
+3. Experimental Design
+I would test three different inventory sizes.
+Experiment	Number of medicines	Purpose
+Test 1	100	Small inventory
+Test 2	10,000	Medium inventory
+Test 3	100,000	Large inventory
+
+For each inventory size, I would measure:
+1. Time required for 100,000 stock lookups.
+2. Time required to produce the code-order report.
+3. Time required to produce the insertion-order report.
+4. Whether the generated reports follow the correct order.
+Prediction:
+- HashMap should provide the fastest average lookups.
+- TreeMap should provide sorted output without additional sorting.
+- LinkedHashMap should provide insertion-order output without additional sorting.
+- Sorting a HashMap or LinkedHashMap will require additional processing time.
+4. Java Implementation
+The following program compares HashMap, TreeMap and LinkedHashMap.
+
+It measures lookup time and report-generation time for all three inventory sizes.
+
+import java.util.*;
+
+public class PharmacyInventory {
+
+    static volatile int result;
+
+    static void testInventory(int size) {
+
+        Map<String, Integer> hashMap = new HashMap<>();
+        Map<String, Integer> treeMap = new TreeMap<>();
+        Map<String, Integer> linkedMap = new LinkedHashMap<>();
+
+        List<String> insertionOrder = new ArrayList<>();
+
+        // Insert medicines in reverse order
+        for (int i = size; i >= 1; i--) {
+
+            String code = String.format("MED%06d", i);
+
+            hashMap.put(code, i * 10);
+            treeMap.put(code, i * 10);
+            linkedMap.put(code, i * 10);
+
+            insertionOrder.add(code);
+        }
+
+        // Prepare lookup keys
+        List<String> lookupKeys = new ArrayList<>();
+
+        for (int i = 0; i < 100000; i++) {
+            lookupKeys.add(
+                String.format("MED%06d", (i % size) + 1)
+            );
+        }
+
+        System.out.println("\nMedicines: " + size);
+
+        // Measure 100,000 lookups
+        measure("HashMap Lookup", () -> {
+            int sum = 0;
+            for (String key : lookupKeys) {
+                sum += hashMap.get(key);
+            }
+            return sum;
+        });
+
+        measure("TreeMap Lookup", () -> {
+            int sum = 0;
+            for (String key : lookupKeys) {
+                sum += treeMap.get(key);
+            }
+            return sum;
+        });
+
+        measure("LinkedHashMap Lookup", () -> {
+            int sum = 0;
+            for (String key : lookupKeys) {
+                sum += linkedMap.get(key);
+            }
+            return sum;
+        });
+
+        // Code-order report
+        measure("HashMap Code-order Report",
+            () -> sortedReport(hashMap).size());
+
+        measure("TreeMap Code-order Report",
+            () -> sortedReport(treeMap).size());
+
+        measure("LinkedHashMap Code-order Report",
+            () -> sortedReport(linkedMap).size());
+
+        // Insertion-order report
+        measure("HashMap Insertion-order Report",
+            () -> insertionReport(hashMap, insertionOrder).size());
+
+        measure("TreeMap Insertion-order Report",
+            () -> insertionReport(treeMap, insertionOrder).size());
+
+        measure("LinkedHashMap Insertion-order Report",
+            () -> new ArrayList<>(linkedMap.keySet()).size());
+
+        // Verify report ordering
+        System.out.println("HashMap code order correct: "
+            + isSorted(sortedReport(hashMap)));
+
+        System.out.println("TreeMap code order correct: "
+            + isSorted(sortedReport(treeMap)));
+
+        System.out.println("LinkedHashMap insertion order correct: "
+            + new ArrayList<>(linkedMap.keySet()).equals(insertionOrder));
+    }
+
+    // Generate code-order report
+    static List<String> sortedReport(Map<String, Integer> map) {
+
+        List<String> codes = new ArrayList<>(map.keySet());
+
+        Collections.sort(codes);
+
+        return codes;
+    }
+
+    // Generate insertion-order report
+    static List<String> insertionReport(
+        Map<String, Integer> map,
+        List<String> insertionOrder) {
+
+        List<String> report = new ArrayList<>();
+
+        for (String code : insertionOrder) {
+            if (map.containsKey(code)) {
+                report.add(code);
+            }
+        }
+
+        return report;
+    }
+
+    // Verify ascending order
+    static boolean isSorted(List<String> codes) {
+
+        for (int i = 1; i < codes.size(); i++) {
+            if (codes.get(i - 1).compareTo(codes.get(i)) > 0) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    // Measure execution time
+    static void measure(String name, Runnable task) {
+
+        // Warm-up
+        task.run();
+
+        long start = System.nanoTime();
+
+        task.run();
+
+        long end = System.nanoTime();
+
+        System.out.println(name + ": "
+            + (end - start) + " ns");
+    }
+
+    static void measure(String name, java.util.function.IntSupplier task) {
+
+        // Warm-up
+        result = task.getAsInt();
+
+        long start = System.nanoTime();
+
+        result = task.getAsInt();
+
+        long end = System.nanoTime();
+
+        System.out.println(name + ": "
+            + (end - start) + " ns");
+    }
+
+    public static void main(String[] args) {
+
+        testInventory(100);
+
+        testInventory(10000);
+
+        testInventory(100000);
+    }
+}
+5. Expected Experimental Results
+The following are expected performance trends, not actual measured timings.
+Operation	Expected fastest
+100,000 lookups	HashMap
+Code-order report	TreeMap
+Insertion-order report	LinkedHashMap
+
+Expected ordering results:
+Map	Code-order report	Insertion-order report
+HashMap	Correct after sorting	Correct using separate insertion list
+TreeMap	Naturally correct	Requires separate insertion list
+LinkedHashMap	Requires sorting	Naturally correct
+
+Because the program inserts medicine codes in reverse order, it is easy to verify whether each map produces the required ordering.
+6. Important Code Correction
+For the code-order report, TreeMap should be allowed to use its natural sorted order rather than sorting its keys again. Use this corrected method in the program:
+static List<String> sortedReport(Map<String, Integer> map) {
+
+    List<String> codes = new ArrayList<>();
+
+    if (map instanceof SortedMap) {
+        codes.addAll(map.keySet());
+    } else {
+        codes.addAll(map.keySet());
+        Collections.sort(codes);
+    }
+
+    return codes;
+}
+
+
+Also, keep only the IntSupplier version of the measure() method in the program. Remove the Runnable overload to avoid ambiguous lambda calls.
+
+With these corrections, the program measures the actual difference between naturally ordered reports and reports that require sorting.
+7. Scalability Inquiry
+For a hospital pharmacy, I would define an acceptable response time for one medicine lookup as less than 1 millisecond (1 ms) under normal in-memory operating conditions.
+
+Since pharmacists perform hundreds of lookups every day, the lookup should be fast and consistent.
+
+My observations and decision:
+- HashMap provides O(1) average lookup.
+- TreeMap provides O(log n) lookup because it searches through a balanced tree.
+- LinkedHashMap provides O(1) average lookup while preserving insertion order.
+I would deploy HashMap if lookup speed is the main requirement and use separate sorting for reports. However, if both insertion-order and code-order reports are frequently generated, LinkedHashMap is a practical choice because it naturally supports one of the required reports.
+
+The remaining performance cost comes from sorting medicine codes, iterating through entries and generating report output.
+Why Is Hashtable Not Preferred in New Java Code?
+Hashtable is an older Java collection.
+- Its methods are synchronized, which introduces overhead.
+- It does not preserve insertion order.
+- It does not allow null keys or values.
+- Modern alternatives such as HashMap and ConcurrentHashMap provide more suitable choices.
+Therefore, Hashtable is generally not preferred in new Java applications.
+8. Final Corrected Java Code
+To avoid confusion, use this complete version instead of the earlier code. It includes the corrections and checks both report requirements.
+
+import java.util.*;
+import java.util.function.IntSupplier;
+
+public class PharmacyInventory {
+
+    static volatile int result;
+
+    static void testInventory(int size) {
+
+        Map<String, Integer> hashMap = new HashMap<>();
+        Map<String, Integer> treeMap = new TreeMap<>();
+        Map<String, Integer> linkedMap = new LinkedHashMap<>();
+
+        List<String> insertionOrder = new ArrayList<>();
+
+        // Insert medicines in reverse order
+        for (int i = size; i >= 1; i--) {
+
+            String code = String.format("MED%06d", i);
+
+            hashMap.put(code, i * 10);
+            treeMap.put(code, i * 10);
+            linkedMap.put(code, i * 10);
+
+            insertionOrder.add(code);
+        }
+
+        // Prepare 100,000 lookup keys
+        List<String> lookupKeys = new ArrayList<>();
+
+        for (int i = 0; i < 100000; i++) {
+            lookupKeys.add(
+                String.format("MED%06d", (i % size) + 1)
+            );
+        }
+
+        System.out.println("\nMedicines: " + size);
+
+        // Lookup performance
+        measure("HashMap Lookup", () -> {
+            int sum = 0;
+            for (String key : lookupKeys) {
+                sum += hashMap.get(key);
+            }
+            return sum;
+        });
+
+        measure("TreeMap Lookup", () -> {
+            int sum = 0;
+            for (String key : lookupKeys) {
+                sum += treeMap.get(key);
+            }
+            return sum;
+        });
+
+        measure("LinkedHashMap Lookup", () -> {
+            int sum = 0;
+            for (String key : lookupKeys) {
+                sum += linkedMap.get(key);
+            }
+            return sum;
+        });
+
+        // Code-order reports
+        measure("HashMap Code Report",
+            () -> sortedReport(hashMap).size());
+
+        measure("TreeMap Code Report",
+            () -> sortedReport(treeMap).size());
+
+        measure("LinkedHashMap Code Report",
+            () -> sortedReport(linkedMap).size());
+
+        // Insertion-order reports
+        measure("HashMap Insertion Report",
+            () -> insertionReport(hashMap, insertionOrder).size());
+
+        measure("TreeMap Insertion Report",
+            () -> insertionReport(treeMap, insertionOrder).size());
+
+        measure("LinkedHashMap Insertion Report",
+            () -> new ArrayList<>(linkedMap.keySet()).size());
+
+        // Verify ordering
+        System.out.println("HashMap code order correct: "
+            + isSorted(sortedReport(hashMap)));
+
+        System.out.println("TreeMap code order correct: "
+            + isSorted(sortedReport(treeMap)));
+
+        System.out.println("HashMap insertion order correct: "
+            + insertionReport(hashMap, insertionOrder)
+                .equals(insertionOrder));
+
+        System.out.println("TreeMap insertion order correct: "
+            + insertionReport(treeMap, insertionOrder)
+                .equals(insertionOrder));
+
+        System.out.println("LinkedHashMap insertion order correct: "
+            + new ArrayList<>(linkedMap.keySet())
+                .equals(insertionOrder));
+    }
+
+    // Generate code-order report
+    static List<String> sortedReport(Map<String, Integer> map) {
+
+        List<String> codes = new ArrayList<>();
+
+        if (map instanceof SortedMap) {
+            codes.addAll(map.keySet());
+        } else {
+            codes.addAll(map.keySet());
+            Collections.sort(codes);
+        }
+
+        return codes;
+    }
+
+    // Generate insertion-order report
+    static List<String> insertionReport(
+        Map<String, Integer> map,
+        List<String> insertionOrder) {
+
+        List<String> report = new ArrayList<>();
+
+        for (String code : insertionOrder) {
+            if (map.containsKey(code)) {
+                report.add(code);
+            }
+        }
+
+        return report;
+    }
+
+    // Check ascending code order
+    static boolean isSorted(List<String> codes) {
+
+        for (int i = 1; i < codes.size(); i++) {
+
+            if (codes.get(i - 1).compareTo(codes.get(i)) > 0) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    // Measure execution time
+    static void measure(String name, IntSupplier task) {
+
+        // Warm-up
+        result = task.getAsInt();
+
+        long start = System.nanoTime();
+
+        result = task.getAsInt();
+
+        long end = System.nanoTime();
+
+        System.out.println(name + ": "
+            + (end - start) + " ns");
+    }
+
+    public static void main(String[] args) {
+
+        testInventory(100);
+
+        testInventory(10000);
+
+        testInventory(100000);
+    }
+}
+9. Alternative Concept – Sorted Array with Binary Search
+Instead of using a Map, the pharmacy can store medicines in an array sorted by medicine code.
+
+Java provides Arrays.binarySearch() to find a medicine quickly.
+
+Example:
+import java.util.Arrays;
+
+public class SortedMedicineArray {
+
+    public static void main(String[] args) {
+
+        String[] medicines = {
+            "MED001", "MED002", "MED003",
+            "MED004", "MED005"
+        };
+
+        int index = Arrays.binarySearch(medicines, "MED003");
+
+        if (index >= 0) {
+            System.out.println("Medicine found at index: " + index);
+        } else {
+            System.out.println("Medicine not found");
+        }
+    }
+}
+
+
+Output:
+Medicine found at index: 2
+
+
+Complexity Comparison
+Operation	Sorted Array	HashMap	TreeMap
+Lookup	O(log n)	O(1) average	O(log n)
+Insertion	O(n)	O(1) average	O(log n)
+Code-order report	O(n)	O(n log n) with sorting	O(n)
+Space	O(n)	O(n)	O(n)
+
+Explanation:
+- Sorted Array: Binary search provides fast lookup, but insertion requires shifting elements to maintain sorted order.
+- HashMap: Provides fast average lookup but requires sorting for code-order reports.
+- TreeMap: Maintains sorted keys automatically but has O(log n) lookup and insertion.
+Therefore, a sorted array is suitable when the inventory changes very rarely and searches are frequent.
+10. Measurement Table for Practical Record
+Fill in the actual values after running your Java program.
+Inventory size	Map	100,000 lookups (ns)	Code report (ns)	Insertion report (ns)
+100	HashMap	___	___	___
+	TreeMap	___	___	___
+	LinkedHashMap	___	___	___
+10,000	HashMap	___	___	___
+	TreeMap	___	___	___
+	LinkedHashMap	___	___	___
+100,000	HashMap	___	___	___
+	TreeMap	___	___	___
+	LinkedHashMap	___	___	___
+
+Note: The program measures total time for 100,000 lookups. Divide that value by 100,000 to calculate average time per lookup. The report measurements are single-run timings, so repeated runs or JMH would provide more reliable results.
+11. Conclusion
+HashMap, TreeMap and LinkedHashMap have different advantages depending on the requirements of the pharmacy inventory system.
+- HashMap is suitable for fast medicine stock lookups.
+- TreeMap is suitable for automatically generating medicine reports in code order.
+- LinkedHashMap is suitable for maintaining medicines in insertion order.
+For the hospital pharmacy, I would recommend HashMap for frequent stock lookups, with sorting for the code-order report and a separate insertion-order list for the second report.
+
+This provides fast average lookup while satisfying both reporting requirements.
