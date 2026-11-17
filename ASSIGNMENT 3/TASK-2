@@ -1,0 +1,363 @@
+Q2 – User-Defined Exceptions and Propagation in an Online Examination Portal (7 Marks)
+This question focuses on creating custom exceptions in Java, propagating exceptions across multiple layers, and preserving the original cause using exception chaining.
+
+I'll provide the complete Java program, class hierarchy, propagation diagram, Student A and Student B answers, test cases, and complexity analysis.
+1. Shared Group Work – Custom Exception Hierarchy
+A. Exception hierarchy
+We create a parent exception called ExamException and three specific child exceptions.
+ExamException
+
+Parent checked exception
+
+ExamWindowClosedException
+Exam time expired
+
+StudentNotRegisteredException
+Student not enrolled
+
+SubmissionStorageException
+File storage failure
+
+
+All three subclasses are checked exceptions because they extend Exception through ExamException.
+
+B. Why checked exceptions?
+Exception	Reason for checked exception
+ExamWindowClosedException	Exam closure is a predictable business rule that must be handled.
+StudentNotRegisteredException	Registration can be checked and handled by the application.
+SubmissionStorageException	Storage failures should be explicitly handled by the calling layer.
+
+Unchecked exceptions are generally suitable for programming mistakes or invalid internal states, such as NullPointerException and IllegalArgumentException.
+2. Shared Group Work – Complete Java Program
+A. Completed TODO 1
+The missing code is:
+throw new SubmissionStorageException(
+    "Could not store " + fileName, e
+);
+
+
+Here:
+- SubmissionStorageException is the custom exception.
+- The message explains the storage failure.
+- e preserves the original IOException as the cause.
+B. Complete program
+
+import java.io.IOException;
+
+class ExamException extends Exception {
+    ExamException(String message) {
+        super(message);
+    }
+
+    ExamException(String message, Throwable cause) {
+        super(message, cause);
+    }
+}
+
+class SubmissionStorageException extends ExamException {
+    SubmissionStorageException(String message, Throwable cause) {
+        super(message, cause);
+    }
+}
+
+class Storage {
+    void save(String fileName, long sizeKb)
+            throws SubmissionStorageException {
+
+        try {
+            if (sizeKb > 500)
+                throw new IOException("Disk quota exceeded");
+
+            System.out.println("Saved " + fileName);
+
+        } catch (IOException e) {
+            // TODO 1 completed
+            throw new SubmissionStorageException(
+                "Could not store " + fileName, e
+            );
+        }
+    }
+}
+
+public class StorageDemo {
+    public static void main(String[] args) {
+
+        Storage storage = new Storage();
+
+        try {
+            storage.save("answer01.pdf", 120);
+            storage.save("answer02.pdf", 800);
+
+        } catch (ExamException e) {
+
+            System.out.println("Error: " + e.getMessage());
+            System.out.println("Cause: " + e.getCause().getMessage());
+        }
+    }
+}
+
+
+
+C. Expected output
+Program output
+Saved answer01.pdf
+Error: Could not store answer02.pdf
+Cause: Disk quota exceeded
+
+
+
+Explanation:
+1. The first file is 120 KB, which is below the 500 KB limit, so it is saved.
+2. The second file is 800 KB, which exceeds the limit.
+3. An IOException is generated.
+4. The catch block wraps it inside SubmissionStorageException.
+5. The main method catches the parent ExamException.
+6. getMessage() displays the custom message.
+7. getCause().getMessage() displays the original IOException message.
+3. Student A – Exception Hierarchy and Propagation Design
+A. Class diagram
+              Throwable
+                  |
+              Exception
+                  |
+             ExamException
+                  |
+       +----------+-----------+
+       |          |           |
+ ExamWindow   StudentNot   Submission
+ Closed       Registered   Storage
+ Exception    Exception    Exception
+
+
+B. Propagation path
+The exception travels from the storage layer to the controller.
+Storage Layer
+
+IOException occurs because file size exceeds the limit.
+
+Service Layer
+
+Wraps IOException into SubmissionStorageException.
+
+Controller Layer
+
+Catches ExamException and handles the failure.
+
+Student Interface
+
+Displays: Could not store answer02.pdf.
+
+
+Note: The supplied program combines the service/controller demonstration inside StorageDemo.main(). The diagram shows the intended layered architecture.
+C. Where is the exception finally handled?
+The exception is handled in the controller layer using:
+catch (ExamException e) {
+    System.out.println("Error: " + e.getMessage());
+}
+
+
+The student sees:
+Error: Could not store answer02.pdf
+
+
+The internal storage details can be recorded for debugging without exposing unnecessary technical information to the student.
+
+4. Student B – Failure Scenarios and Chaining Evidence
+A. Three failure scenarios
+Exception	Scenario	Expected message
+ExamWindowClosedException	Student submits after exam deadline	Exam window is closed
+StudentNotRegisteredException	Student attempts an exam without registration	Student is not registered
+SubmissionStorageException	Answer file exceeds 500 KB	Could not store answer file
+
+B. Demonstrating exception chaining
+Exception chaining preserves the original exception inside a new custom exception.
+try {
+    throw new IOException("Disk quota exceeded");
+}
+catch (IOException e) {
+
+    throw new SubmissionStorageException(
+        "Could not store answer02.pdf", e
+    );
+}
+
+
+To access the original exception:
+catch (ExamException e) {
+
+    System.out.println(e.getMessage());
+
+    System.out.println(e.getCause().getMessage());
+
+    e.printStackTrace();
+}
+
+
+Possible chained stack trace:
+SubmissionStorageException:
+Could not store answer02.pdf
+
+Caused by: java.io.IOException:
+Disk quota exceeded
+
+
+The full stack trace also includes the file and line-number information for the exception creation and propagation locations.
+C. What happens without passing the cause?
+If we write:
+throw new SubmissionStorageException(
+    "Could not store " + fileName, null
+);
+
+
+Then:
+System.out.println(e.getCause());
+
+
+Output:
+null
+
+
+If the supplied program still uses:
+System.out.println(e.getCause().getMessage());
+
+
+it will throw a NullPointerException.
+
+Information lost:
+1. Original exception type (IOException).
+2. Original error message (Disk quota exceeded).
+3. Original stack trace and debugging information.
+4. The relationship between the storage failure and its underlying cause.
+D. Test table
+Test	Input/condition	Expected result
+1	File size = 120 KB	File saved successfully
+2	File size = 800 KB	SubmissionStorageException
+3	Exam deadline passed	ExamWindowClosedException
+4	Student not registered	StudentNotRegisteredException
+5	Storage exception without cause	Cause returns null
+
+
+5. Joint Conclusion
+Question: Why is it better for the storage layer to throw a meaningful SubmissionStorageException than to let an IOException travel unchanged to the user interface?
+
+Answer:
+
+It is better to throw a meaningful SubmissionStorageException because:
+1. It provides a clear explanation of the problem.
+2. It hides unnecessary internal storage implementation details.
+3. It makes debugging and maintenance easier.
+4. It maintains a consistent exception hierarchy.
+5. It preserves the original IOException through exception chaining.
+6. The controller can handle storage failures without depending directly on storage-specific exceptions.
+Conclusion: Custom exceptions improve readability, maintainability, security and error management in multi-layer applications.
+
+6. Alternative Concept – Using Unchecked Exceptions
+The given custom exceptions extend Exception, making them checked exceptions.
+
+Suppose we change the parent class to RuntimeException.
+A. Original checked exception
+class ExamException extends Exception {
+    ExamException(String message) {
+        super(message);
+    }
+}
+
+
+With checked exceptions, methods must either catch the exception or declare it using throws.
+
+Example:
+void save(String fileName, long sizeKb)
+        throws SubmissionStorageException {
+    // Code
+}
+
+
+The calling method must also handle or propagate the exception.
+B. Modified unchecked exception
+Change the parent class to:
+class ExamException extends RuntimeException {
+
+    ExamException(String message) {
+        super(message);
+    }
+
+    ExamException(String message, Throwable cause) {
+        super(message, cause);
+    }
+}
+
+
+Now the throws declaration is optional.
+void save(String fileName, long sizeKb) {
+    // Code
+}
+
+
+The calling method does not have to catch the exception.
+
+However, it can still catch it if necessary:
+try {
+    storage.save("answer02.pdf", 800);
+}
+catch (ExamException e) {
+    System.out.println(e.getMessage());
+}
+
+
+C. Comparison
+Checked exceptions	Unchecked exceptions
+Extend Exception	Extend RuntimeException
+Must be caught or declared	Catching or declaring is optional
+Compiler enforces handling	Compiler does not enforce handling
+More explicit error handling	Less method-signature complexity
+Suitable for recoverable business failures	Often suitable for programming errors and invalid states
+
+My recommendation: For an examination portal, checked exceptions are preferable for exam closure, registration failures and storage failures because these are expected application conditions that should be handled properly.
+
+7. Complexity Analysis – Exception Handling and Chaining
+A. Time complexity
+Let d represent the depth of the call stack.
+Operation	Time complexity
+Creating a normal exception	O(d) when stack-trace information is captured
+Throwing an exception	O(d) in a typical JVM implementation, including stack-trace-related overhead
+Catching an exception	O(1) for basic handler selection, excluding stack unwinding
+Returning an error code	O(1)
+Accessing getCause()	O(1)
+Printing a full stack trace	O(d)
+
+The exact runtime cost depends on the JVM and execution environment.
+B. Space complexity
+Operation	Space complexity
+Normal exception object	O(d) for captured stack-trace information
+Error code	O(1)
+Exception with one chained cause	O(d₁ + d₂) for both captured traces
+Multiple chained exceptions	O(sum of captured stack-trace sizes)
+
+C. How does chaining affect memory?
+When an exception is chained, the new exception stores a reference to the original exception using cause.
+
+For example:
+IOException original =
+    new IOException("Disk quota exceeded");
+
+SubmissionStorageException custom =
+    new SubmissionStorageException(
+        "Could not store file", original
+    );
+
+
+Two exception objects are maintained:
+- Original IOException.
+- New SubmissionStorageException.
+Both may contain their own stack-trace information.
+
+Therefore, exception chaining increases memory usage because both exception objects and their stack traces must be retained while reachable.
+D. Final comparison
+Factor	Checked exception	Unchecked exception
+Method signatures	Requires throws or catch	No mandatory throws or catch
+Error handling	Compiler enforced	Programmer controlled
+Stack trace	Captured when created by default	Captured when created by default
+Memory	Depends on stack depth and causes	Depends on stack depth and causes
+Chaining	Supported	Supported
+
+Final conclusion: Checked and unchecked exceptions have broadly similar runtime and memory costs when both capture stack traces. Their main difference is compile-time handling requirements, not Big-O complexity.
