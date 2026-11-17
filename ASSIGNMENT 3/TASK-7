@@ -1,0 +1,529 @@
+Q7 – Design a Concurrent, Fault-Tolerant Processor from First Principles (10 Marks)
+Stage 1 – Interpret the Problem (Joint) | 2 Marks
+A. Tasks that can run in parallel
+The examination cell needs to process 10,000 score files. Each file requires three operations:
+1. Read the student's score file.
+2. Validate the student ID and marks.
+3. Calculate the result.
+These operations can run independently for different students. Therefore, multiple files can be processed simultaneously using multiple threads.
+
+Shared data:
+- A collection containing successful results.
+- A collection containing failed file details.
+- The final success and failure counters.
+These shared results must be accessed safely by multiple threads.
+B. Possible failures and handling
+Failure	Example	Handling
+Missing file	Score file does not exist	Record as failure and continue.
+Corrupt file	Invalid file format	Catch parsing error and record failure.
+Invalid marks	Marks are negative or above 100	Reject the file and record failure.
+Empty file	No student details	Record validation failure.
+I/O error	File cannot be read	Catch IOException and continue.
+Unexpected task exception	Error during result calculation	Capture the task failure and continue processing other files.
+Thread interruption	Processing is interrupted	Stop or cancel processing appropriately and preserve the interrupt status.
+
+C. Measurable requirements
+Requirement	Measurement
+Process all files	Attempt all 10,000 expected files.
+Fault tolerance	One corrupt or missing file must not stop other tasks.
+Accuracy	Every valid file must produce the correct result.
+Performance	Measure total processing time for 1, 2, 4 and 8 threads.
+Summary	Successful count + failed count = 10,000.
+Resource usage	Record thread count and memory usage where possible.
+
+
+Stage 2 – Design (Student A) | 3 Marks
+A. Design using ExecutorService, Callable and Future
+- ExecutorService: Creates and manages a fixed-size thread pool.
+- Callable: Processes one score file and returns its processing result.
+- Future: Holds the result of a submitted task and allows the main thread to retrieve it.
+- ConcurrentLinkedQueue: Stores processing results safely when multiple threads add results simultaneously.
+A ConcurrentLinkedQueue is suitable because several worker threads can add results without manually synchronizing every insertion.
+B. Class diagram
+ResultProcessor
+
+Main class
+- Creates thread pool
+- Submits tasks
+- Collects Futures
+- Generates final summary
+
+Submits Callable tasks
+
+ScoreFileTask
+
+Implements Callable
+- Reads file
+- Validates marks
+- Calculates result
+- Handles file errors
+
+
+ProcessingResult
+
+Result object
+- Student ID
+- Calculated result
+- Success/failure
+- Error message
+
+
+
+Results stored safely
+
+ConcurrentLinkedQueue
+
+Shared result collection
+
+Stores successful and failed processing records
+
+
+C. Pseudocode
+START
+
+Read the list of 10,000 expected score files
+
+Create a fixed thread pool
+
+Create a concurrent result collection
+
+FOR each score file:
+    Create a Callable task
+    Submit task to ExecutorService
+    Store returned Future
+
+FOR each Future:
+    Retrieve ProcessingResult
+    If task failed unexpectedly:
+        Record the failure
+
+Count successful results
+Count failed results
+
+Print final summary
+Shutdown ExecutorService
+
+END
+
+
+D. Exception handling design
+Each Callable handles expected file-related failures independently.
+
+For example:
+try {
+    // Read and validate score file
+    // Calculate result
+} catch (IOException e) {
+    // Record file reading failure
+} catch (NumberFormatException e) {
+    // Record invalid score format
+} catch (IllegalArgumentException e) {
+    // Record invalid marks
+}
+
+
+This prevents an expected failure in one file from terminating the entire processing run.
+
+The main thread also handles ExecutionException when retrieving a Future, because an unexpected exception may escape from a task.
+
+Stage 3 – Implement and Measure (Student B) | 3 Marks
+A. Complete Java implementation
+The following implementation assumes each score file contains one line in this format:
+Student101,85
+
+
+The first value is the student ID, and the second value is the marks out of 100. A missing file, malformed entry or invalid mark is recorded as a failure.
+
+import java.io.*;
+import java.nio.file.*;
+import java.util.*;
+import java.util.concurrent.*;
+
+class ProcessingResult {
+    String studentId;
+    int marks;
+    boolean success;
+    String message;
+
+    ProcessingResult(String studentId, int marks,
+                     boolean success, String message) {
+        this.studentId = studentId;
+        this.marks = marks;
+        this.success = success;
+        this.message = message;
+    }
+}
+
+class ScoreFileTask implements Callable<ProcessingResult> {
+    private final Path file;
+
+    ScoreFileTask(Path file) {
+        this.file = file;
+    }
+
+    public ProcessingResult call() {
+        try (BufferedReader br = Files.newBufferedReader(file)) {
+            String line = br.readLine();
+
+            if (line == null || line.trim().isEmpty()) {
+                throw new IllegalArgumentException("Empty file");
+            }
+
+            String[] data = line.split(",");
+
+            if (data.length != 2 || data[0].trim().isEmpty()) {
+                throw new IllegalArgumentException("Invalid file format");
+            }
+
+            String studentId = data[0].trim();
+            int marks = Integer.parseInt(data[1].trim());
+
+            if (marks < 0 || marks > 100) {
+                throw new IllegalArgumentException("Invalid marks");
+            }
+
+            String result = marks >= 50 ? "PASS" : "FAIL";
+
+            return new ProcessingResult(
+                studentId, marks, true, result
+            );
+
+        } catch (IOException | NumberFormatException |
+                 IllegalArgumentException e) {
+
+            return new ProcessingResult(
+                file.getFileName().toString(),
+                0, false, e.getMessage()
+            );
+        }
+    }
+}
+
+public class ResultProcessor {
+
+    public static void process(Path folder, int fileCount,
+                               int poolSize) throws InterruptedException {
+
+        ExecutorService executor =
+                Executors.newFixedThreadPool(poolSize);
+
+        ConcurrentLinkedQueue<ProcessingResult> results =
+                new ConcurrentLinkedQueue<>();
+
+        List<Future<ProcessingResult>> futures =
+                new ArrayList<>();
+
+        long start = System.nanoTime();
+
+        try {
+            // Submit one task for every expected file
+            for (int i = 1; i <= fileCount; i++) {
+                Path file = folder.resolve(
+                    String.format("student_%04d.txt", i)
+                );
+
+                futures.add(
+                    executor.submit(new ScoreFileTask(file))
+                );
+            }
+
+            // Collect all task results
+            for (Future<ProcessingResult> future : futures) {
+                try {
+                    results.add(future.get());
+
+                } catch (ExecutionException e) {
+                    results.add(new ProcessingResult(
+                        "Unknown file", 0, false,
+                        "Unexpected task error: " + e.getCause()
+                    ));
+                }
+            }
+
+        } finally {
+            executor.shutdown();
+        }
+
+        executor.awaitTermination(1, TimeUnit.HOURS);
+
+        long end = System.nanoTime();
+
+        int success = 0;
+        int failure = 0;
+
+        for (ProcessingResult r : results) {
+            if (r.success) {
+                success++;
+            } else {
+                failure++;
+                System.out.println(
+                    "Failed: " + r.studentId + " - " + r.message
+                );
+            }
+        }
+
+        System.out.println("\nThread pool size: " + poolSize);
+        System.out.println("Successful files: " + success);
+        System.out.println("Failed files: " + failure);
+        System.out.println("Total files: " + (success + failure));
+        System.out.printf("Time taken: %.2f ms%n",
+                (end - start) / 1_000_000.0);
+    }
+
+    public static void main(String[] args)
+            throws InterruptedException {
+
+        Path folder = Paths.get("scores");
+        int fileCount = 10000;
+
+        int[] poolSizes = {1, 2, 4, 8};
+
+        for (int poolSize : poolSizes) {
+            process(folder, fileCount, poolSize);
+        }
+    }
+}
+
+
+
+Important: Create a folder named scores and place the expected files inside it. The program expects names such as student_0001.txt, student_0002.txt, and so on. Leave some files missing or put invalid content in some files to test failure handling.
+
+The example assumes Java 8 or later.
+B. Important correction to the exception-handling code
+In the implementation above, NumberFormatException is a subclass of IllegalArgumentException. Java does not allow both in the same multi-catch statement.
+
+Use this corrected catch block in ScoreFileTask:
+} catch (IOException | IllegalArgumentException e) {
+    return new ProcessingResult(
+        file.getFileName().toString(),
+        0, false, e.getMessage()
+    );
+}
+
+
+This handles file-reading errors, invalid number formats and validation errors.
+C. Injecting corrupt and missing files
+For testing, prepare a small set of files:
+File	Content or condition	Expected result
+student_0001.txt	Student101,85	Success – PASS
+student_0002.txt	Student102,40	Success – FAIL
+student_0003.txt	Student103,abc	Failure – invalid number
+student_0004.txt	Student104,120	Failure – invalid marks
+student_0005.txt	Empty file	Failure – empty file
+student_0006.txt	File missing	Failure – file not found
+
+Expected summary for this six-file test:
+Successful files: 2
+Failed files: 4
+Total files: 6
+
+
+The result summary counts validly processed files as successes, even if the student's academic result is FAIL. A student who scores 40 has a valid result; the file itself has not failed processing.
+D. Measuring performance with different thread pools
+Run the program with pool sizes of 1, 2, 4 and 8. The program already measures elapsed time using System.nanoTime().
+
+Record your actual results in this table:
+Thread pool size	Time taken (ms)	Successful files	Failed files
+1	______	______	______
+2	______	______	______
+4	______	______	______
+8	______	______	______
+
+Do not fill in estimated times as actual measurements. Run the program on your computer and enter the measured values.
+
+For a fair comparison:
+- Use the same 10,000 files for all four tests.
+- Keep the number of valid and invalid files unchanged.
+- Run each configuration more than once.
+- Compare average times rather than relying on one run.
+- If possible, run a warm-up before recording measurements.
+E. Verify the summary
+The following condition must always be true after a complete run:
+\[
+\text{Successful files}+\text{Failed files}=10,000
+\]
+
+For example, if 9,700 files are processed successfully and 300 fail:
+\[
+9700+300=10000
+\]
+
+If the total is not 10,000, investigate whether a task was not submitted, a result was not collected, or processing was interrupted.
+
+Possible failure not handled correctly: If the main thread is interrupted while collecting Futures, it may stop collecting results before all tasks finish. The program should treat this as an interrupted run rather than claim that it has generated a complete summary. Also, serious JVM errors such as OutOfMemoryError are not ordinary file-processing exceptions and are not guaranteed to be recoverable.
+
+Stage 4 – Defend the Design (Joint) | 2 Marks
+A. Recommended thread pool size
+The recommended pool size depends on the computer's CPU cores and the type of work.
+- 1 thread: Processes files sequentially. Reliable but may take longer.
+- 2 threads: Allows two files to be processed simultaneously.
+- 4 threads: Can improve performance when multiple files are processed independently.
+- 8 threads: May improve performance further, but can also introduce more scheduling and context-switching overhead.
+For this file-processing task, I would initially recommend 4 threads, then compare the measured results with 2 and 8 threads.
+
+More threads do not always improve performance because:
+1. The computer has a limited number of CPU cores.
+2. Too many threads cause additional context switching.
+3. Multiple threads may compete for disk access.
+4. Thread creation and task scheduling introduce overhead.
+5. If the files are stored on a slow disk, adding threads may not improve reading speed.
+B. How does the design guarantee a complete and correct summary?
+The design uses the following mechanisms:
+1. Every expected file is submitted as a separate task.
+2. Each task returns a ProcessingResult, whether processing succeeds or fails.
+3. ConcurrentLinkedQueue safely stores the results from multiple threads.
+4. The main thread calls Future.get() to collect every submitted task's result.
+5. The final summary counts successful and failed results separately.
+Therefore, during a normal uninterrupted run, the number of recorded results should equal the number of submitted files.
+C. One remaining limitation
+The program depends on the availability and readability of the file storage system. If the disk becomes unavailable or the program runs out of memory, processing may not complete successfully.
+
+A more advanced system could use persistent result storage and retry failed files.
+
+Alternative Concept and Complexity Analysis
+A. Using parallel streams
+Instead of creating an ExecutorService, Java's parallelStream() can process files concurrently.
+
+Example:
+import java.nio.file.*;
+import java.util.*;
+import java.util.concurrent.ConcurrentLinkedQueue;
+
+public class ParallelResultProcessor {
+
+    public static void main(String[] args) throws Exception {
+
+        Path folder = Paths.get("scores");
+
+        List<Path> files = new ArrayList<>();
+
+        for (int i = 1; i <= 10000; i++) {
+            files.add(folder.resolve(
+                String.format("student_%04d.txt", i)
+            ));
+        }
+
+        ConcurrentLinkedQueue<ProcessingResult> results =
+                new ConcurrentLinkedQueue<>();
+
+        long start = System.nanoTime();
+
+        files.parallelStream().forEach(file -> {
+            ProcessingResult result =
+                    new ScoreFileTask(file).call();
+
+            results.add(result);
+        });
+
+        long end = System.nanoTime();
+
+        long success = results.stream()
+                .filter(r -> r.success).count();
+
+        long failure = results.size() - success;
+
+        System.out.println("Successful files: " + success);
+        System.out.println("Failed files: " + failure);
+        System.out.println("Total files: " + results.size());
+
+        System.out.printf("Time taken: %.2f ms%n",
+                (end - start) / 1_000_000.0);
+    }
+}
+
+
+Explanation:
+- parallelStream() automatically divides the work into smaller tasks.
+- It generally uses Java's common ForkJoinPool.
+- Multiple files can be processed simultaneously.
+- A ConcurrentLinkedQueue stores the results safely.
+Failure handling: The ScoreFileTask catches expected file-processing exceptions and returns a failure result. Therefore, one corrupt file does not stop the other tasks. If an exception escapes the processing operation, it can cause the parallel stream operation to fail.
+B. Creating one thread per file
+Another approach is to create a separate thread for every file.
+
+For 10,000 files, this creates 10,000 threads.
+
+Example:
+import java.nio.file.*;
+import java.util.*;
+import java.util.concurrent.*;
+
+public class OneThreadPerFile {
+
+    public static void main(String[] args)
+            throws InterruptedException {
+
+        Path folder = Paths.get("scores");
+
+        ConcurrentLinkedQueue<ProcessingResult> results =
+                new ConcurrentLinkedQueue<>();
+
+        List<Thread> threads = new ArrayList<>();
+
+        for (int i = 1; i <= 10000; i++) {
+
+            Path file = folder.resolve(
+                String.format("student_%04d.txt", i)
+            );
+
+            Thread t = new Thread(() -> {
+                ProcessingResult result =
+                        new ScoreFileTask(file).call();
+
+                results.add(result);
+            });
+
+            threads.add(t);
+            t.start();
+        }
+
+        for (Thread t : threads) {
+            t.join();
+        }
+
+        long success = results.stream()
+                .filter(r -> r.success).count();
+
+        long failure = results.size() - success;
+
+        System.out.println("Successful files: " + success);
+        System.out.println("Failed files: " + failure);
+        System.out.println("Total files: " + results.size());
+    }
+}
+
+
+Explanation:
+- A new thread is created for every score file.
+- Each thread processes one file independently.
+- join() makes the main thread wait until all worker threads finish.
+- The concurrent collection stores the processing results.
+This approach is not recommended for 10,000 files because creating and managing so many threads consumes significant resources.
+C. Time and space complexity comparison
+Let:
+- \(n\) = total number of files (10,000).
+- \(p\) = number of worker threads.
+- \(S\) = average thread stack size.
+- \(b\) = average file size.
+Approach	Approximate processing time	Thread stack memory
+ExecutorService	O(n/p) for balanced tasks	O(p × S)
+Parallel streams	O(n/p) ideally	O(p × S)
+One thread per file	O(1) ideal parallel time, but unrealistic at this scale	O(n × S)
+
+The ideal time estimates assume balanced workloads and sufficient CPU and disk resources. Actual execution time also includes file I/O, scheduling and synchronization overhead.
+
+Space complexity:
+- ExecutorService: O(n) for the submitted Future list and results, plus O(p × S) for thread stacks.
+- Parallel streams: O(n) for the input file list and results, plus O(p × S) for worker thread stacks.
+- One thread per file: O(n) for the thread list and results, plus O(n × S) for thread stacks.
+For all three approaches, the result collection requires O(n) space. The thread stack memory is additional.
+D. Comparison of all three approaches
+Feature	ExecutorService	Parallel streams	One thread per file
+Thread management	Controlled	Automatic	Manual
+Thread count	Fixed pool	Common pool by default	10,000
+Failure handling	Individual task handling	Individual handling inside the stream operation	Individual handling inside each thread
+Resource usage	Controlled	Controlled by pool	Very high
+Performance	Predictable and configurable	Convenient, but less control over the pool	High overhead at large scale
+Suitability for 10,000 files	Excellent	Good	Poor
+
+Final conclusion: I would choose ExecutorService with a fixed thread pool because it provides better control over the number of threads, allows individual task results to be collected using Future, and prevents one ordinary file-processing failure from stopping the entire run. parallelStream() is simpler but provides less direct control over task execution. Creating one thread per file is unsuitable because 10,000 threads can consume excessive memory and system resources.
