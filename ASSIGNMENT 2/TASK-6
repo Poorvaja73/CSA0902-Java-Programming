@@ -1,0 +1,249 @@
+Q6 – Priority, Order and Fairness in a Queue (8 Marks)
+1. Why a normal Queue is not sufficient
+A normal Queue follows FIFO (First In, First Out). This means the first patient who arrives is treated first, regardless of their medical condition.
+
+However, hospital triage must follow two rules:
+1. The patient with the lowest severity number must be treated first (Severity 1 is most critical).
+2. If two patients have the same severity, the patient who arrived earlier must be treated first.
+Therefore, a normal FIFO queue is not suitable. A PriorityQueue with a custom Comparator is more appropriate because it orders patients according to severity and arrival time.
+2. Complete Java program
+Save the file as Triage.java.
+
+import java.util.Comparator;
+import java.util.PriorityQueue;
+import java.util.ArrayList;
+import java.util.List;
+
+class Patient {
+    final String name;
+    final int severity;
+    final long arrival;
+
+    Patient(String name, int severity, long arrival) {
+        this.name = name;
+        this.severity = severity;
+        this.arrival = arrival;
+    }
+
+    @Override
+    public String toString() {
+        return name + "(S" + severity + ")";
+    }
+}
+
+public class Triage {
+    private long counter = 0;
+
+    // Lower severity number gets higher priority.
+    // If severity is equal, earlier arrival gets higher priority.
+    private final PriorityQueue<Patient> queue =
+        new PriorityQueue<>(
+            Comparator.comparingInt((Patient p) -> p.severity)
+                      .thenComparingLong(p -> p.arrival)
+        );
+
+    void admit(String name, int severity) {
+        queue.add(new Patient(name, severity, counter++));
+    }
+
+    Patient next() {
+        return queue.poll();
+    }
+
+    // Display patients in actual treatment order without
+    // removing them from the original queue.
+    void displayWaitingList() {
+        PriorityQueue<Patient> copy = new PriorityQueue<>(queue);
+
+        System.out.println("Waiting list:");
+        while (!copy.isEmpty()) {
+            System.out.print(copy.poll() + " ");
+        }
+        System.out.println();
+    }
+
+    public static void main(String[] args) {
+        Triage er = new Triage();
+
+        er.admit("Ravi", 3);
+        er.admit("Meena", 1);
+        er.admit("John", 3);
+        er.admit("Asha", 5);
+        er.admit("Kumar", 1);
+        er.admit("Lata", 2);
+
+        er.displayWaitingList();
+
+        StringBuilder order = new StringBuilder();
+        Patient p;
+
+        while ((p = er.next()) != null) {
+            order.append(p).append(" ");
+        }
+
+        System.out.println("Treatment order:");
+        System.out.println(order.toString().trim());
+    }
+}
+
+
+
+Expected output:
+Waiting list:
+Meena(S1) Kumar(S1) Lata(S2) Ravi(S3) John(S3) Asha(S5)
+Treatment order:
+Meena(S1) Kumar(S1) Lata(S2) Ravi(S3) John(S3) Asha(S5)
+
+
+3. How the Comparator and arrival counter work
+The Comparator has two conditions:
+Comparator.comparingInt((Patient p) -> p.severity)
+          .thenComparingLong(p -> p.arrival)
+
+
+- comparingInt() sorts patients by severity in ascending order. Severity 1 comes before severity 2, 3, and so on.
+- thenComparingLong() compares arrival numbers when two patients have the same severity. The smaller arrival number comes first.
+The counter is increased every time a patient is admitted:
+queue.add(new Patient(name, severity, counter++));
+
+
+For example:
+Patient	Severity	Arrival counter
+Ravi	3	0
+Meena	1	1
+John	3	2
+Asha	5	3
+Kumar	1	4
+Lata	2	5
+
+Meena and Kumar both have severity 1. Since Meena's arrival counter is 1 and Kumar's is 4, Meena is treated first. Similarly, Ravi is treated before John because both have severity 3.
+4. Hand-verified correctness check
+The six patients in the program produce this treatment order:
+1. Meena – Severity 1
+2. Kumar – Severity 1
+3. Lata – Severity 2
+4. Ravi – Severity 3
+5. John – Severity 3
+6. Asha – Severity 5
+This order satisfies both rules: the most severe patients are treated first, and patients with equal severity are treated in arrival order.
+
+To extend the hand test to eight patients, add Nila (Severity 2) and Dev (Severity 4). The expected order becomes:
+Meena(S1) Kumar(S1) Lata(S2) Nila(S2)
+Ravi(S3) John(S3) Dev(S4) Asha(S5)
+
+
+Important: Printing a PriorityQueue directly does not guarantee treatment order. Its internal structure is a heap, which guarantees that the highest-priority element is at the head, but does not fully sort all the other elements. To display the actual treatment order, repeatedly call poll() on a copy of the queue, as the program does.
+5. Growth investigation – Time complexity
+Before testing, we can predict the cost of each operation.
+Operation	PriorityQueue complexity	Explanation
+Admit a patient (add)	O(log n)	The heap may need to rearrange elements to maintain priority order.
+Serve next patient (poll)	O(log n)	The root is removed and the heap is rearranged.
+View next patient (peek)	O(1)	The highest-priority patient is at the root.
+Store all patients	O(n)	Each patient occupies one queue entry.
+
+Here, n represents the number of waiting patients.
+
+Test with three meaningful queue sizes:
+- 1,000 patients
+- 10,000 patients
+- 100,000 patients
+You can use the following benchmark method in the same Triage class to measure admission and removal. Call benchmark(); at the end of main() if you want the program to print the timings too.
+
+static void benchmark() {
+    int[] sizes = {1000, 10000, 100000};
+
+    System.out.println("\nPriorityQueue benchmark");
+    System.out.println("Patients\tAdd time (ms)\tRemove time (ms)");
+
+    for (int n : sizes) {
+        PriorityQueue<Patient> pq = new PriorityQueue<>(
+            Comparator.comparingInt((Patient p) -> p.severity)
+                      .thenComparingLong(p -> p.arrival)
+        );
+
+        long startAdd = System.nanoTime();
+
+        for (int i = 0; i < n; i++) {
+            pq.add(new Patient("Patient" + i, (i % 5) + 1, i));
+        }
+
+        long endAdd = System.nanoTime();
+
+        long startRemove = System.nanoTime();
+
+        while (!pq.isEmpty()) {
+            pq.poll();
+        }
+
+        long endRemove = System.nanoTime();
+
+        double addTime = (endAdd - startAdd) / 1_000_000.0;
+        double removeTime = (endRemove - startRemove) / 1_000_000.0;
+
+        System.out.printf("%d\t\t%.3f\t\t%.3f%n",
+                          n, addTime, removeTime);
+    }
+}
+Record your actual results after running the program:
+Queue size	Admission time (ms)	Removal time (ms)
+1,000	Fill after running	Fill after running
+10,000	Fill after running	Fill after running
+100,000	Fill after running	Fill after running
+
+The expected trend is that both admission and removal take longer as the queue grows, approximately following O(log n) per operation. Actual timings depend on the computer, JVM, and other running processes. Run the benchmark more than once and compare the results rather than treating one run as definitive.
+6. Starvation and a fair rule
+Starvation occurs when a patient waits indefinitely because patients with higher priority keep arriving.
+
+For example, a Severity 5 patient may never be treated if new Severity 1, 2, or 3 patients continually enter the hospital.
+
+Fairness solution – Waiting-time priority:
+
+Introduce an ageing rule. If a patient waits longer than a fixed time, such as 30 minutes, their effective priority can be increased.
+
+For example:
+- A Severity 5 patient waiting for 30 minutes may receive the priority of Severity 4.
+- If they wait another 30 minutes, their priority may increase again.
+- Critical patients must still receive immediate attention according to hospital safety rules.
+The system can periodically update effective priorities or calculate them when selecting the next patient. This reduces starvation while maintaining emergency priority.
+7. Alternative queue designs and complexity analysis
+A. LinkedList maintained in sorted order
+Another solution is to use a LinkedList and insert every new patient at the correct position based on severity and arrival time.
+- Admission: O(n), because the list may need to be traversed to find the correct position.
+- Serving the next patient: O(1), because the first patient can be removed directly.
+- Space: O(n), because each patient is stored as a node.
+This design makes removal fast, but admission becomes slower as the waiting list grows.
+B. Array of five FIFO queues
+We can create five separate FIFO queues, one for each severity level.
+- Queue 1 stores Severity 1 patients.
+- Queue 2 stores Severity 2 patients.
+- Queue 3 stores Severity 3 patients.
+- Queue 4 stores Severity 4 patients.
+- Queue 5 stores Severity 5 patients.
+When a patient arrives, they are added to the queue matching their severity. When a doctor is ready, the system checks the queues in order from Severity 1 to Severity 5 and removes the first patient from the first non-empty queue.
+Design	Admission	Serve next	Space
+PriorityQueue	O(log n)	O(log n)	O(n)
+Sorted LinkedList	O(n)	O(1)	O(n)
+Five FIFO queues	O(1)	O(1)	O(n)
+
+The five-queue solution has O(1) serving time because checking five queues takes a fixed maximum of five checks. It also preserves arrival order within each severity level through FIFO behaviour.
+
+Best choice: The five FIFO queues are especially efficient when there are exactly five fixed severity levels. A PriorityQueue is more flexible if the hospital later introduces additional priority rules, such as waiting-time ageing.
+8. Deployment decision – Can it serve 5,000 patients daily?
+Suitable with production safeguards
+Yes. A PriorityQueue-based triage system can handle a hospital receiving 5,000 patients per day.
+
+Reasons:
+1. Fast admission: Adding a patient takes O(log n) time.
+2. Fast treatment selection: Removing the next patient takes O(log n) time.
+3. Scalability: The queue can efficiently manage thousands of waiting patients.
+4. Memory efficiency: It requires O(n) space to store the waiting patients.
+5. Correct prioritisation: The Comparator ensures that critical patients are selected before less severe patients while preserving arrival order for equal severity.
+However, a real hospital system needs additional safeguards:
+- Use thread-safe coordination when multiple staff members admit or select patients simultaneously.
+- Store patient records securely and persist them so a system restart does not lose the waiting list.
+- Implement waiting-time ageing and clinical override rules.
+- Maintain an audit log of admissions and treatment decisions.
+- Test the system under peak-hour loads, not just average daily traffic.
+A daily total of 5,000 patients is not itself a performance problem for this design. Actual deployment should be validated against the hospital's peak arrival rate and operational requirements.
+9. Conclusion
+A normal FIFO queue cannot prioritise patients according to medical severity. A PriorityQueue with a Comparator solves this by sorting first by severity and then by arrival counter. Its admission and removal operations take O(log n) time, and it uses O(n) space. A waiting-time ageing rule can reduce starvation and make the system fairer. Therefore, this design is suitable for a hospital triage prototype and can be developed for real-world use with appropriate safety, concurrency, and data-protection measures.
