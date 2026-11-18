@@ -1,0 +1,223 @@
+TASK A2 – DON'T READ WHAT YOU DON'T NEED 
+Problem: A program reads a 50 MB attendance log one byte at a time using FileInputStream.read() to count the number of lines.
+A2.1 – Predict the Cost 
+A 50 MB attendance log contains approximately:
+\[
+50 \times 1024 \times 1024 = 52,428,800 \text{ bytes}
+\]
+
+When the program uses FileInputStream.read() one byte at a time, it performs approximately 52,428,800 read() calls to read the entire file.
+
+Reasons why this approach is slow:
+1. Each read operation requests another byte from the input stream.
+2. Frequent read operations create additional method-call overhead.
+3. Repeated interactions with the underlying input system increase processing overhead.
+4. The program cannot efficiently take advantage of bulk reading.
+Example Java code:
+FileInputStream fis =
+    new FileInputStream("attendance.log");
+
+int count = 0;
+int data;
+
+while ((data = fis.read()) != -1) {
+    if (data == '\n') {
+        count++;
+    }
+}
+
+fis.close();
+
+System.out.println("Total lines: " + count);
+
+
+Prediction: Approximately 52.4 million read() method calls are required, making this approach inefficient for large files.
+
+Note: The number of Java read() calls is not necessarily the number of operating-system calls because Java and the operating system may use internal buffering and caching.
+
+A2.2 – Redesign Using Buffering (2 Marks)
+The program can be redesigned using BufferedInputStream or a byte array buffer.
+
+Instead of reading one byte at a time from the underlying file, the program reads a block of bytes into memory and processes them.
+
+Java Implementation Using BufferedInputStream:
+import java.io.*;
+
+public class AttendanceCounter {
+    public static void main(String[] args) {
+
+        int lineCount = 0;
+
+        try (
+            BufferedInputStream bis =
+                new BufferedInputStream(
+                    new FileInputStream("attendance.log"),
+                    8192
+                )
+        ) {
+
+            int data;
+
+            while ((data = bis.read()) != -1) {
+
+                if (data == '\n') {
+                    lineCount++;
+                }
+            }
+
+            System.out.println(
+                "Total lines: " + lineCount
+            );
+
+        } catch (IOException e) {
+            System.out.println(
+                "Error reading file: " + e.getMessage()
+            );
+        }
+    }
+}
+
+
+Explanation:
+- FileInputStream reads bytes from the file.
+- BufferedInputStream maintains an internal buffer of 8,192 bytes.
+- When the buffer becomes empty, another block of bytes is loaded.
+- The program processes bytes from memory instead of repeatedly accessing the underlying file.
+Calculation:
+
+File size = 52,428,800 bytes
+
+Buffer size = 8,192 bytes
+\[
+\text{Number of buffer fills}
+=
+\frac{52,428,800}{8,192}
+\]
+
+\[
+= 6,400
+\]
+
+6,400 buffer fills
+Method	Number of Java read() calls	Approximate underlying bulk reads
+Unbuffered byte-by-byte	52,428,801	Potentially millions
+BufferedInputStream	52,428,801	Approximately 6,400
+
+The extra Java read call checks for the end of the file. The buffered approach significantly reduces underlying read operations, although the program still makes one Java-level read() call per byte.
+
+Conclusion:
+
+Buffering improves performance by reducing expensive underlying file-read operations. It also makes large-file processing more efficient without requiring the entire file to be stored in memory.
+
+A2.3 – When Buffering Does Not Help (1 Mark)
+Buffering provides little or no benefit when the program reads a very small file that already fits into one buffer.
+
+Example:
+
+If a file contains only 100 bytes and the buffer size is 8,192 bytes, the entire file can be loaded in a single buffer fill.
+
+Adding buffering may provide negligible performance improvement because the file is already small.
+
+Another situation is when the program performs random-access reads of isolated bytes from different locations rather than sequential reads. In such cases, buffering may not provide significant benefits, depending on the access pattern.
+
+Alternative Concept and Complexity Analysis
+Alternative: Reading the Entire File Using Files.readAllLines()
+Instead of processing the file through a buffered stream, Java provides Files.readAllLines() to read all lines into a list in memory.
+
+This approach loads the entire attendance log before processing it.
+
+Java Implementation:
+import java.io.*;
+import java.nio.file.*;
+import java.util.*;
+
+public class AttendanceCounter {
+    public static void main(String[] args) {
+
+        try {
+
+            List<String> lines =
+                Files.readAllLines(
+                    Paths.get("attendance.log")
+                );
+
+            int lineCount = lines.size();
+
+            System.out.println(
+                "Total lines: " + lineCount
+            );
+
+        } catch (IOException e) {
+
+            System.out.println(
+                "Error reading file: " + e.getMessage()
+            );
+        }
+    }
+}
+
+
+Explanation:
+1. Files.readAllLines() reads the complete file.
+2. Every line is stored as a separate String.
+3. The lines are stored in a List.
+4. size() returns the total number of lines.
+This approach is simple because it does not require manually counting newline characters.
+Time and Space Complexity Analysis
+Let:
+- \(S\) = total file size.
+- \(B\) = buffer size.
+- \(L\) = number of lines.
+Approach	Time Complexity	Auxiliary Space Complexity
+Byte-by-byte FileInputStream	O(S)	O(1)
+BufferedInputStream	O(S)	O(B)
+Files.readAllLines()	O(S)	O(S)
+
+1. Byte-by-byte reading
+- Time complexity: O(S), because every byte must be examined.
+- Space complexity: O(1), because only a small amount of memory is required.
+2. Buffered reading
+- Time complexity: O(S), because every byte is still examined once.
+- Space complexity: O(B), because only a fixed-size buffer is maintained.
+3. Files.readAllLines()
+- Time complexity: O(S), because the complete file must be read and processed.
+- Space complexity: O(S), because all lines are stored in memory as String objects, along with list and object overhead.
+Memory Comparison for a 50 MB File
+Assume the buffer size is 8 KB.
+Approach	Approximate memory requirement
+Byte-by-byte reading	O(1) additional memory
+BufferedInputStream	8 KB buffer
+Files.readAllLines()	At least the file's decoded content, plus String and List overhead
+
+For a 50 MB file, Files.readAllLines() can consume substantially more than 50 MB of heap memory because Java stores decoded strings and object metadata.
+Approximate input memory requirements
+Illustrative comparison; excludes JVM and object overhead for the first two approaches.
+
+
+0 KB15K KB30K KB45K KB60K KBByte-by-byteBuffered (8 KB)Entire file (50 MB)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+When Each Approach Is Appropriate
+Approach	Appropriate situation
+Byte-by-byte reading	Small files or simple demonstrations
+BufferedInputStream	Large files, sequential processing and limited memory
+Files.readAllLines()	Small or moderate files when all lines are needed simultaneously
+
+Final Comparison and Decision
+For the 50 MB attendance log, I would choose BufferedInputStream because it provides efficient sequential reading while using only a small, fixed amount of additional memory.
+
+Files.readAllLines() is easier to implement and is useful when the application needs to access all lines repeatedly. However, it can consume excessive memory when processing large attendance logs.
+
+Final decision: Buffered reading is the most suitable solution for this problem because it reduces underlying file-read operations, maintains O(S) processing time and requires only O(B) additional memory.
