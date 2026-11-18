@@ -1,0 +1,310 @@
+TASK B2 – ENGINEER AN ADVERSARIAL INPUT 
+B2.1 – Test the unsafe login and PreparedStatement versions
+Objective: Demonstrate how a specially constructed input can bypass an unsafe SQL login check, and how PreparedStatement prevents this SQL injection attack.
+
+Use a local test database created only for this assignment. The following example uses Java JDBC with SQLite.
+1. Create a local test database
+Create a database named login_test.db and a table named users.
+CREATE TABLE users (
+    username TEXT,
+    password TEXT
+);
+
+INSERT INTO users VALUES ('admin', 'admin123');
+INSERT INTO users VALUES ('student', 'student123');
+
+
+The database contains two valid users. The attacker does not know the administrator's password.
+2. Unsafe login implementation
+The following code directly joins user input into an SQL query.
+import java.sql.*;
+import java.util.Scanner;
+
+public class UnsafeLogin {
+    public static void main(String[] args) throws Exception {
+        Connection con = DriverManager.getConnection(
+            "jdbc:sqlite:login_test.db"
+        );
+
+        Scanner sc = new Scanner(System.in);
+
+        System.out.print("Username: ");
+        String username = sc.nextLine();
+
+        System.out.print("Password: ");
+        String password = sc.nextLine();
+
+        String sql = "SELECT * FROM users WHERE username = '"
+                + username + "' AND password = '" + password + "'";
+
+        System.out.println("SQL: " + sql);
+
+        Statement st = con.createStatement();
+        ResultSet rs = st.executeQuery(sql);
+
+        if (rs.next()) {
+            System.out.println("Login successful");
+        } else {
+            System.out.println("Invalid login");
+        }
+
+        rs.close();
+        st.close();
+        con.close();
+    }
+}
+
+
+3. Construct an adversarial input
+Enter the following values:
+- Username: admin' --
+- Password: anything
+The resulting SQL query becomes:
+SELECT * FROM users
+WHERE username = 'admin' --' AND password = 'anything'
+
+
+In SQL, -- starts a comment. Therefore, the password condition is ignored.
+
+Unsafe version
+ Observed expected result:
+Login successful
+
+
+The login succeeds even though the attacker entered an incorrect password. This reveals that the original design is vulnerable because it treats user input as part of the SQL command instead of treating it as data.
+4. PreparedStatement implementation
+import java.sql.*;
+import java.util.Scanner;
+
+public class SafeLogin {
+    public static void main(String[] args) throws Exception {
+        Connection con = DriverManager.getConnection(
+            "jdbc:sqlite:login_test.db"
+        );
+
+        Scanner sc = new Scanner(System.in);
+
+        System.out.print("Username: ");
+        String username = sc.nextLine();
+
+        System.out.print("Password: ");
+        String password = sc.nextLine();
+
+        String sql = "SELECT * FROM users WHERE username = ? AND password = ?";
+
+        PreparedStatement ps = con.prepareStatement(sql);
+
+        ps.setString(1, username);
+        ps.setString(2, password);
+
+        ResultSet rs = ps.executeQuery();
+
+        if (rs.next()) {
+            System.out.println("Login successful");
+        } else {
+            System.out.println("Invalid login");
+        }
+
+        rs.close();
+        ps.close();
+        con.close();
+    }
+}
+
+
+Use the same adversarial input:
+Username: admin' --
+Password: anything
+
+
+PreparedStatement
+ Observed expected result:
+Invalid login
+
+
+PreparedStatement treats the supplied username and password as parameter values, not SQL syntax. Therefore, the comment characters cannot remove the password condition.
+
+Comparison of results
+Test	Unsafe SQL	PreparedStatement
+Valid admin credentials	Login successful	Login successful
+Incorrect password	Invalid login	Invalid login
+Username admin' -- with wrong password	Login successful	Invalid login
+
+Security note: This is a deliberately vulnerable demonstration using a local database and test credentials only. A real login system should store salted password hashes rather than plaintext passwords.
+B2.2 – Construct and test a damaged bus-pass file
+Objective: Test whether the file store can identify and safely skip invalid records instead of crashing or returning incorrect data.
+
+The PassStore implementation from B1 uses five fields:
+1. Pass ID
+2. Register number
+3. Student name
+4. Route number
+5. Amount
+1. Create a damaged file
+Create a file named damaged_passes.csv with the following contents:
+P1001,192311001,Arun,5,3500.0
+P1002,192311002,Divya,7
+P1003,192311003,Kiran,3,notanumber
+
+P1004,192311004,Meena,8,4200.0
+
+
+The file deliberately contains three types of damaged input:
+Record	Problem	Expected handling
+P1002	Only four fields instead of five	Skip the record
+P1003	Amount is not numeric	Skip the record
+Empty line	Contains no data	Skip the line
+P1001 and P1004	Valid records	Process normally
+
+2. Improve the file validation code
+The original B1 implementation checked only the number of fields. It could still accept a record containing a non-numeric amount. The following improved implementation checks both the field count and data types.
+import java.io.*;
+import java.nio.file.*;
+
+public class PassFileTest {
+
+    static boolean isValidRecord(String[] fields) {
+        if (fields.length != 5) {
+            return false;
+        }
+
+        try {
+            Integer.parseInt(fields[3]);  // Validate route number
+            Double.parseDouble(fields[4]); // Validate amount
+
+            if (fields[0].isEmpty() ||
+                fields[1].isEmpty() ||
+                fields[2].isEmpty()) {
+                return false;
+            }
+
+            return true;
+
+        } catch (NumberFormatException e) {
+            return false;
+        }
+    }
+
+    public static String[] find(String passId) throws IOException {
+
+        try (BufferedReader br =
+                Files.newBufferedReader(Paths.get("damaged_passes.csv"))) {
+
+            String line;
+
+            while ((line = br.readLine()) != null) {
+
+                if (line.trim().isEmpty()) {
+                    continue;
+                }
+
+                String[] fields = line.split(",", -1);
+
+                if (!isValidRecord(fields)) {
+                    System.out.println("Skipping damaged record: " + line);
+                    continue;
+                }
+
+                if (fields[0].equals(passId)) {
+                    return fields;
+                }
+            }
+        }
+
+        return null;
+    }
+
+    public static void main(String[] args) throws IOException {
+
+        System.out.println("Searching for P1001:");
+        String[] result1 = find("P1001");
+        System.out.println(java.util.Arrays.toString(result1));
+
+        System.out.println("\nSearching for P1003:");
+        String[] result2 = find("P1003");
+        System.out.println(java.util.Arrays.toString(result2));
+
+        System.out.println("\nSearching for P1004:");
+        String[] result3 = find("P1004");
+        System.out.println(java.util.Arrays.toString(result3));
+    }
+}
+
+
+3. Expected output
+Searching for P1001:
+[P1001, 192311001, Arun, 5, 3500.0]
+
+Searching for P1003:
+Skipping damaged record: P1002,192311002,Divya,7
+Skipping damaged record: P1003,192311003,Kiran,3,notanumber
+null
+
+Searching for P1004:
+Skipping damaged record: P1002,192311002,Divya,7
+Skipping damaged record: P1003,192311003,Kiran,3,notanumber
+[P1004, 192311004, Meena, 8, 4200.0]
+
+
+The empty line is silently skipped. The valid records are still accessible even when damaged records exist in the file.
+
+What the adversarial inputs reveal:
+- Wrong number of fields: The original design cannot safely assume every line contains all required values.
+- Non-numeric amount: Checking only the number of fields is insufficient; individual fields must also be validated.
+- Empty line: The program must handle blank input without attempting to process it as a valid record.
+- Overall: A robust file store should validate every record before using it and should skip or report invalid records without terminating the entire operation.
+
+B2.3 – Alternative concept and complexity analysis
+Instead of using PreparedStatement, a programmer might try two approaches to prevent SQL injection.
+Method 1: Escape quotation marks
+The programmer could replace single quotation marks in the input before building the SQL query.
+String safeUsername = username.replace("'", "''");
+String safePassword = password.replace("'", "''");
+
+String sql = "SELECT * FROM users WHERE username = '"
+        + safeUsername + "' AND password = '" + safePassword + "'";
+
+
+This attempts to prevent a quotation mark from ending the SQL string.
+
+Limitation: Escaping rules can differ between database systems and SQL configurations. If the escaping is incomplete or incorrect, an attacker may still manipulate the query. Every input must be escaped correctly in every SQL context.
+Method 2: Validate input using a regular expression
+The programmer could allow only letters and numbers in the username and password.
+if (!username.matches("[a-zA-Z0-9]+") ||
+    !password.matches("[a-zA-Z0-9]+")) {
+
+    System.out.println("Invalid input");
+    return;
+}
+
+
+This rejects characters such as ', -, and ;.
+
+Limitation: Regular expressions restrict legitimate input unnecessarily. A valid password may contain symbols such as @, #, or !. Validation also does not replace parameterized SQL, especially when input is used in different SQL contexts.
+Comparison
+Approach	Security	Limitation
+Direct SQL concatenation	Unsafe	Allows SQL injection
+Escaping quotation marks	Partially protective	Database-specific and easy to implement incorrectly
+Regular-expression validation	Useful as additional validation	May reject valid input and does not guarantee SQL safety
+PreparedStatement	Recommended	Separates SQL instructions from input values
+
+Time complexity analysis
+Let \(m\) represent the length of the user input.
+Approach	Additional processing cost per query
+Direct concatenation	\(O(m)\) for building the query string
+Quote escaping	\(O(m)\) to scan and escape the input
+Regex validation	Generally \(O(m)\) for a simple fixed-pattern validation
+PreparedStatement	Parameter binding is generally \(O(m)\) in the input size
+
+The actual database execution time also depends on the query, indexes, database size, and execution plan. PreparedStatement does not necessarily make every query faster, but it provides a safer separation between SQL code and user-supplied data. A database may also reuse a prepared execution plan.
+
+Conclusion: Escaping and regular-expression validation can provide additional protection, but they should not replace PreparedStatement. Parameterized queries are the recommended solution because they prevent user input from being interpreted as SQL instructions. File validation must also be performed independently to protect the bus-pass system from malformed records.
+
+B2.4 – Evidence to include in the assignment
+Include the following evidence in your submission:
+1. Screenshot of the local database table containing the two test users.
+2. Screenshot of the unsafe login accepting admin' -- with an incorrect password.
+3. Screenshot of the PreparedStatement version rejecting the same input.
+4. Screenshot of damaged_passes.csv showing the malformed records and empty line.
+5. Screenshot of the Java output showing damaged records being skipped and valid records being found.
+Final observation: The experiments demonstrate two weaknesses in the original designs: unsafe SQL construction allows authentication bypass, while insufficient file validation can allow malformed records to be processed incorrectly. PreparedStatement and record-level validation address these problems.
