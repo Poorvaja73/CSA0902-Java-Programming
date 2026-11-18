@@ -1,0 +1,351 @@
+TASK A3 – DISCOVER THE DATA-ACCESS DESIGN PATTERN 
+Problem: A student project contains three classes: StudentDB, CourseDB and MarksDB. All three classes perform similar database operations, resulting in repeated code.
+
+The solution is to introduce the Data Access Object (DAO) Design Pattern using a generic interface.
+A3.1 – Identify the Common Pattern (2 Marks)
+The three classes perform almost identical database operations.
+
+Common steps repeated in all three classes:
+1. Establish a database connection using JDBC.
+2. Prepare an SQL query.
+3. Execute the SQL statement.
+4. Retrieve the results using ResultSet.
+5. Convert database records into Java objects.
+6. Close the database resources.
+Parts that differ:
+StudentDB	CourseDB	MarksDB
+Student table	Course table	Marks table
+Student ID	Course ID	Marks ID
+Student name	Course name	Marks details
+Student object	Course object	Marks object
+Student-specific SQL	Course-specific SQL	Marks-specific SQL
+
+Identified Design Pattern:
+
+The repeated functionality can be separated using the Data Access Object (DAO) Pattern.
+
+The DAO pattern separates database access logic from business logic. It provides a common structure for performing database operations and reduces code duplication.
+
+Advantages:
+- Reduces repeated code.
+- Improves code reusability.
+- Makes maintenance easier.
+- Separates database operations from business logic.
+- Makes testing easier.
+
+A3.2 – Design a Generic Data-Access Interface (2 Marks)
+A generic interface Dao<T, K> can be created to perform common database operations.
+
+Here:
+- T represents the entity type, such as Student or Course.
+- K represents the primary key type, such as Integer or String.
+1. Generic DAO Interface
+Java Code:
+import java.util.List;
+import java.util.Optional;
+
+public interface Dao<T, K> {
+
+    void insert(T entity);
+
+    Optional<T> findById(K id);
+
+    List<T> findAll();
+
+    void update(T entity);
+
+    void delete(K id);
+}
+
+
+Explanation of Methods:
+Method	Purpose
+insert(T entity)	Inserts a new record
+findById(K id)	Finds a record using its primary key
+findAll()	Retrieves all records
+update(T entity)	Updates an existing record
+delete(K id)	Deletes a record using its primary key
+
+2. StudentDao Implementation
+The StudentDao class implements the generic DAO interface for Student records.
+
+Java Code:
+import java.sql.*;
+import java.util.*;
+
+public class StudentDao implements Dao<Student, Integer> {
+
+    private Connection connection;
+
+    public StudentDao(Connection connection) {
+        this.connection = connection;
+    }
+
+    @Override
+    public void insert(Student student) {
+
+        String sql =
+            "INSERT INTO student VALUES (?, ?)";
+
+        try (PreparedStatement ps =
+                 connection.prepareStatement(sql)) {
+
+            ps.setInt(1, student.getId());
+            ps.setString(2, student.getName());
+
+            ps.executeUpdate();
+
+        } catch (SQLException e) {
+            e.printStackTrace();
+        }
+    }
+
+    @Override
+    public Optional<Student> findById(Integer id) {
+
+        String sql =
+            "SELECT * FROM student WHERE id = ?";
+
+        try (PreparedStatement ps =
+                 connection.prepareStatement(sql)) {
+
+            ps.setInt(1, id);
+
+            try (ResultSet rs = ps.executeQuery()) {
+
+                if (rs.next()) {
+
+                    Student student = new Student(
+                        rs.getInt("id"),
+                        rs.getString("name")
+                    );
+
+                    return Optional.of(student);
+                }
+            }
+
+        } catch (SQLException e) {
+            e.printStackTrace();
+        }
+
+        return Optional.empty();
+    }
+
+    @Override
+    public List<Student> findAll() {
+
+        List<Student> students = new ArrayList<>();
+
+        String sql = "SELECT * FROM student";
+
+        try (
+            Statement st = connection.createStatement();
+            ResultSet rs = st.executeQuery(sql)
+        ) {
+
+            while (rs.next()) {
+
+                students.add(new Student(
+                    rs.getInt("id"),
+                    rs.getString("name")
+                ));
+            }
+
+        } catch (SQLException e) {
+            e.printStackTrace();
+        }
+
+        return students;
+    }
+
+    @Override
+    public void update(Student student) {
+
+        String sql =
+            "UPDATE student SET name = ? WHERE id = ?";
+
+        try (PreparedStatement ps =
+                 connection.prepareStatement(sql)) {
+
+            ps.setString(1, student.getName());
+            ps.setInt(2, student.getId());
+
+            ps.executeUpdate();
+
+        } catch (SQLException e) {
+            e.printStackTrace();
+        }
+    }
+
+    @Override
+    public void delete(Integer id) {
+
+        String sql =
+            "DELETE FROM student WHERE id = ?";
+
+        try (PreparedStatement ps =
+                 connection.prepareStatement(sql)) {
+
+            ps.setInt(1, id);
+            ps.executeUpdate();
+
+        } catch (SQLException e) {
+            e.printStackTrace();
+        }
+    }
+}
+
+
+Note: The example assumes the Student class has a constructor accepting an integer ID and a String name. In a complete application, database exceptions should be propagated to the service layer rather than silently swallowed.
+3. How the Generic DAO Works
+Generic DAO Interface
+
+Dao<T, K>
+
+
+StudentDao
+
+Student table
+
+
+CourseDao
+
+Course table
+
+
+MarksDao
+
+Marks table
+
+
+
+
+Database
+
+Student | Course | Marks
+
+
+Explanation:
+
+The generic interface defines common database operations. Each DAO implementation provides the SQL queries and object mapping specific to its table.
+
+This allows different entity classes to follow the same structure without repeating the interface design.
+
+A3.3 – Map Objects to Tables (1 Mark)
+Object-relational mapping (ORM) is the process of mapping Java class fields to database table columns.
+
+For the Student class, the mapping is:
+Student Java Class
+public class Student {
+
+    private int id;
+    private String name;
+
+    public Student(int id, String name) {
+        this.id = id;
+        this.name = name;
+    }
+
+    public int getId() {
+        return id;
+    }
+
+    public String getName() {
+        return name;
+    }
+}
+
+
+Student Database Table
+Table name: student
+Java class field	Database column	Data type	Constraint
+id	id	INT	PRIMARY KEY
+name	name	VARCHAR(100)	NOT NULL
+
+SQL Table Creation:
+CREATE TABLE student (
+    id INT PRIMARY KEY,
+    name VARCHAR(100) NOT NULL
+);
+
+
+Object-to-Table Mapping:
+Student Object              Student Table
+
+id = 101          ------->   id = 101
+name = "Arun"     ------->   name = "Arun"
+
+
+The id field acts as the primary key and uniquely identifies each student record.
+
+Alternative Concept and Complexity Analysis
+Alternative: Writing SQL Directly Inside Service or GUI Classes
+Instead of using a generic DAO interface, SQL queries can be written directly inside service classes or GUI classes.
+
+Example:
+public class StudentService {
+
+    public void addStudent(
+        Connection con, int id, String name
+    ) {
+
+        String sql =
+            "INSERT INTO student VALUES (?, ?)";
+
+        try (PreparedStatement ps =
+                 con.prepareStatement(sql)) {
+
+            ps.setInt(1, id);
+            ps.setString(2, name);
+
+            ps.executeUpdate();
+
+        } catch (SQLException e) {
+            e.printStackTrace();
+        }
+    }
+}
+
+
+In this approach, database connection handling, SQL queries and result processing are mixed with application logic.
+Comparison of Both Approaches
+Criteria	Generic DAO Pattern	SQL Inside Service/GUI
+Code duplication	Low	High
+Maintainability	Easy	Difficult
+Reusability	High	Low
+Separation of concerns	Clear	Poor
+Testing	Easier	More difficult
+Database changes	Centralized	Changes required in multiple places
+
+Comparison When a Table Column Is Renamed
+Suppose the student table column name is renamed to student_name.
+
+Using the DAO pattern:
+- The SQL query and result mapping inside StudentDao must be updated.
+- Other service and GUI classes can continue using the same DAO methods.
+- Changes are mainly restricted to the data-access implementation.
+Using SQL directly inside service or GUI classes:
+- Every SQL query referring to name must be located.
+- Multiple service and GUI classes may need modifications.
+- This increases maintenance effort and the possibility of errors.
+Time and Space Complexity Analysis
+Let \(n\) represent the number of records retrieved from the database.
+Operation	Generic DAO	SQL inside Service/GUI
+Insert	O(1) database operation	O(1) database operation
+Find by primary key	O(1) with indexed primary key	O(1) with indexed primary key
+Find all	O(n)	O(n)
+Update	O(1) with indexed primary key	O(1) with indexed primary key
+Delete	O(1) with indexed primary key	O(1) with indexed primary key
+
+These are typical database-operation complexities assuming an indexed primary key. Actual performance depends on the database engine, indexing, query execution plan and transaction overhead.
+
+Space Complexity:
+- Generic DAO: O(n) when retrieving and storing all records in a list; O(1) auxiliary space for a single-record operation.
+- SQL inside Service/GUI: O(n) when retrieving all records; O(1) auxiliary space for a single-record operation.
+Important observation: Both approaches have approximately the same database time and space complexity when executing equivalent SQL queries. The DAO pattern does not automatically make SQL execution faster. Its main advantage is better code organization, reusability and maintainability.
+Final Comparison and Decision
+I would select the Generic DAO Design Pattern because it separates database operations from business logic and reduces code duplication.
+
+If the database structure changes, the modifications can be handled mainly inside the relevant DAO implementation instead of changing multiple service and GUI classes.
+
+Therefore, the DAO pattern is more suitable for large applications containing multiple database tables because it improves maintainability, scalability and code reusability.
