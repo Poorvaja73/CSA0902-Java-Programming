@@ -1,0 +1,242 @@
+TASK A4 – WHAT SHOULD BE SERIALIZED? 
+Problem: Hostel Management System
+
+A hostel management program stores its complete in-memory state by serializing a Hostel object. The Hostel object contains a list of Room objects, and each Room contains a list of Resident objects.
+
+Each Resident contains a name, register number, password and a reference to a live database Connection.
+A4.1 – Decide What to Persist 
+Serialization is the process of converting a Java object into a byte stream so that it can be stored in a file and restored later using deserialization.
+1. Fields That Should Be Serialized
+The following fields contain important hostel information and should be saved:
+Class	Field	Should serialize?	Reason
+Hostel	List of Rooms	Yes	Stores hostel room information
+Room	List of Residents	Yes	Stores residents assigned to rooms
+Resident	Name	Yes	Required to identify residents
+Resident	Register Number	Yes	Identifies each student uniquely
+Resident	Password	No, preferably	Passwords should not be stored in plaintext; store a securely hashed password separately
+Resident	Database Connection	No	A live database connection cannot be meaningfully restored from a saved file
+
+2. Fields That Must Be Marked Transient
+The transient keyword prevents a field from being included in Java's default serialization process.
+
+Example Java Code:
+import java.io.Serializable;
+import java.sql.Connection;
+
+class Hostel implements Serializable {
+
+    private static final long serialVersionUID = 1L;
+
+    private List<Room> rooms;
+}
+
+class Room implements Serializable {
+
+    private static final long serialVersionUID = 1L;
+
+    private List<Resident> residents;
+}
+
+class Resident implements Serializable {
+
+    private static final long serialVersionUID = 1L;
+
+    private String name;
+    private String registerNumber;
+
+    private transient String password;
+
+    private transient Connection connection;
+}
+
+
+Explanation:
+- transient String password: Prevents the plaintext password from being serialized. Passwords should instead be stored securely as salted password hashes in an appropriate protected authentication store.
+- transient Connection connection: Prevents the live database connection from being serialized because it is a runtime resource that must be recreated when the application starts.
+3. What Happens to the Object Graph?
+When the Hostel object is serialized, Java follows references to other serializable objects and saves the reachable object graph.
+Hostel Object
+
+List of Rooms
+
+
+Room Objects
+
+List of Residents
+
+
+Resident Objects
+
+Name and Register Number are saved
+Serialized
+
+
+Password
+Not serialized
+
+Database Connection
+Not serialized
+
+
+Important points:
+1. All referenced classes must implement Serializable for the object graph to be serialized successfully.
+2. The transient fields are skipped during default serialization.
+3. After deserialization, transient fields receive their default values, such as null for object references.
+4. The database connection must be established again after deserialization.
+Conclusion: Only the necessary hostel and resident information should be serialized. Sensitive information and runtime resources should be excluded to improve security and reliability.
+
+A4.2 – Plan for Change (2 Marks)
+Suppose a new field called phoneNumber is added to the Resident class after some hostel data files have already been saved.
+1. Adding a New Field
+Updated Resident Class:
+class Resident implements Serializable {
+
+    private static final long serialVersionUID = 1L;
+
+    private String name;
+    private String registerNumber;
+    private String phoneNumber;
+
+    private transient String password;
+    private transient Connection connection;
+}
+
+
+2. What Happens When an Old File Is Read?
+When an older serialized file is opened using the updated Resident class:
+- Java checks the serialVersionUID of the saved class against the current class.
+- If both values match, deserialization can continue.
+- The new phoneNumber field did not exist in the old file.
+- Therefore, Java assigns the default value null to the new String field.
+- The remaining compatible fields are restored normally.
+Example:
+Field	Old saved file	After deserialization
+Name	Arun	Arun
+Register Number	24CS001	24CS001
+Phone Number	Not available	null
+Password	Not serialized	null
+Connection	Not serialized	null
+
+The application can then request the resident's phone number and update the saved data.
+3. Role of serialVersionUID
+serialVersionUID is a version identifier used by Java serialization to check compatibility between the saved object and the current class.
+
+Example:
+private static final long serialVersionUID = 1L;
+
+
+There are two possible situations:
+
+Situation 1: serialVersionUID remains unchanged
+- Old and new classes have matching version identifiers.
+- Java allows compatible deserialization.
+- The newly added phoneNumber field receives null.
+- Existing data can be restored.
+Situation 2: serialVersionUID changes
+
+For example:
+private static final long serialVersionUID = 2L;
+
+
+- The saved file contains version 1.
+- The current class contains version 2.
+- Java detects a mismatch.
+- Deserialization fails with InvalidClassException.
+Conclusion: Keeping a suitable serialVersionUID allows compatible class changes, such as adding a new field, without losing access to previously saved data. However, more complex structural changes may require custom migration logic.
+
+Alternative Concept and Complexity Analysis
+Alternative: Saving Hostel Data Using CSV or JSON
+Instead of Java object serialization, hostel information can be stored in CSV or JSON text formats.
+
+These formats store data as readable text and do not depend on Java's internal object serialization mechanism.
+1. CSV Format
+CSV (Comma-Separated Values) stores records in rows, with individual fields separated by commas.
+
+Example:
+name,registerNumber,phoneNumber
+Arun,24CS001,9876543210
+Priya,24CS002,9876543211
+
+
+Advantages:
+- Easy to read and edit.
+- Can be opened using spreadsheet applications.
+- Suitable for simple tabular resident information.
+Limitation: CSV does not naturally represent nested structures such as Hostel → Rooms → Residents. Additional files, identifiers or relational references would be needed.
+2. JSON Format
+JSON (JavaScript Object Notation) stores data using objects, arrays and key-value pairs.
+
+Example:
+{
+  "hostel": {
+    "rooms": [
+      {
+        "roomNumber": 101,
+        "residents": [
+          {
+            "name": "Arun",
+            "registerNumber": "24CS001",
+            "phoneNumber": "9876543210"
+          },
+          {
+            "name": "Priya",
+            "registerNumber": "24CS002",
+            "phoneNumber": "9876543211"
+          }
+        ]
+      }
+    ]
+  }
+}
+
+
+Advantages:
+- Supports nested objects and arrays.
+- Human-readable.
+- Can be used by applications written in different programming languages.
+- New fields can be added more easily.
+Limitation: Requires a JSON parsing library or suitable JSON processing API.
+3. Complexity Comparison
+Let:
+- \(n\) = number of residents.
+- \(S\) = total size of the stored data.
+- \(B\) = buffer size.
+Criteria	Java Serialization	CSV	JSON
+Save time	O(S)	O(S)	O(S)
+Load time	O(S)	O(S)	O(S)
+Space complexity	O(S)	O(S)	O(S)
+Readability	Low	High	High
+Nested object support	Yes	Limited	Yes
+Language independence	No	Yes	Yes
+Adding new fields	Requires compatibility handling	Relatively easy	Relatively easy
+Storage overhead	Often compact	Depends on text representation	Often higher due to keys and structure
+
+4. Comparison of File Size and Memory Usage
+Java Serialization:
+- Stores object data in a binary format.
+- Includes class and serialization metadata.
+- Usually not directly readable by humans.
+- Requires compatible Java classes when restoring objects.
+CSV:
+- Stores values as plain text.
+- Usually has less structural overhead than JSON.
+- Suitable for flat resident records.
+JSON:
+- Stores field names, values and nested structures.
+- Can use more storage than CSV because field names are repeated.
+- Easier to understand and modify manually.
+For all three formats, loading the complete dataset generally requires O(S) memory. A streaming CSV or JSON parser can reduce additional memory usage when processing one resident at a time.
+5. Handling a New Field
+Suppose a new field, phoneNumber, is added to the Resident class.
+Approach	Effect of adding phoneNumber
+Java Serialization	Old files assign null if class compatibility is maintained
+CSV	Add a new column; older rows need a default or missing-value rule
+JSON	Add a new key; older objects can use null or a default value
+
+CSV and JSON provide more flexibility when the data structure changes, provided the application handles missing fields correctly.
+Final Comparison and Decision
+For the hostel management system, I would prefer JSON because it supports nested structures such as Hostel, Room and Resident. It is also readable, language-independent and easier to extend when new fields are introduced.
+
+Java serialization is useful when saving and restoring Java object graphs directly, but it creates stronger dependencies on Java class definitions and version compatibility.
+
+Final decision: JSON is the better choice for long-term hostel data storage because it provides flexibility, readability and easier schema evolution. Passwords should never be stored as plaintext in any of these formats, and live database connections should always be recreated at runtime.
