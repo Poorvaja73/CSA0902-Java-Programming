@@ -1,0 +1,300 @@
+Task 1.1 – Diagnose the Design 
+The given program has several design deficiencies that affect usability, performance, security and maintainability.
+S.No.	Design deficiency	Explanation and possible consequences
+1	Poor separation of interface and business logic	Database operations, payment processing and input handling are written inside actionPerformed(). This makes the program difficult to test, modify and maintain.
+2	Incorrect String comparison	The code uses == to compare "Pay". In Java, equals() should be used to compare String contents. Otherwise, the Pay operation may not execute as expected.
+3	No input validation	The program does not check whether the registration number and amount are empty or valid. Invalid input may cause NumberFormatException or incorrect payment records.
+4	Database operation on the Event Dispatch Thread (EDT)	Database operations are performed directly inside the event handler. This can make the GUI unresponsive while the database is processing.
+5	Use of Thread.sleep(3000)	The sleep statement blocks the GUI thread for three seconds. During this time, the window may freeze and the user cannot interact with it.
+6	No proper user feedback	The program only prints "Paid" in the console. The user does not receive a proper confirmation message in the GUI.
+7	Receipt button is not implemented	The Receipt button has no separate functionality. Clicking it executes the else block and clears the fields instead.
+8	SQL injection vulnerability	User input is directly added to the SQL statement. An attacker could manipulate the query and affect database records. A PreparedStatement should be used.
+9	No database connection management	The database connection is not closed properly, which can cause resource leaks.
+10	No exception handling	Database operations and Thread.sleep() can throw checked exceptions. Without proper handling, the program may fail during execution.
+11	No window-closing functionality	The program does not handle the window closing event, making it difficult to terminate the application properly.
+
+Task 1.2 – Repair the Design 
+1. Proposed Design
+The redesigned system separates the GUI from the payment-processing logic.
+
+It contains two main classes:
+
+1. FeeWindow (GUI Class)
+- Displays registration number and amount fields.
+- Provides Pay, Clear and Receipt buttons.
+- Collects input from the user.
+- Displays payment success or error messages.
+- Sends payment requests to the FeeService class.
+2. FeeService (Business Logic Class)
+- Validates registration number and amount.
+- Performs payment processing.
+- Connects to the database.
+- Uses PreparedStatement to prevent SQL injection.
+- Returns the payment result to the GUI.
+2. Class Structure
+
+              FeeWindow
+                  |
+          Collects User Input
+                  |
+             FeeService
+                  |
+        Validates Payment Details
+                  |
+          Database Connection
+                  |
+          PreparedStatement
+                  |
+          Payment Confirmation
+                  |
+              FeeWindow
+          Displays Result
+
+
+
+3. Rewritten Java Program
+Program 1: FeeService.java
+
+This class handles validation and payment processing separately from the GUI.
+
+import java.sql.*;
+
+public class FeeService {
+
+    private static final String URL = "jdbc:mysql://localhost:3306/college";
+    private static final String USER = "root";
+    private static final String PWD = "password";
+
+    public String payFee(String regNo, String amount) {
+
+        if (regNo == null || regNo.trim().isEmpty()) {
+            return "Registration number cannot be empty";
+        }
+
+        if (amount == null || amount.trim().isEmpty()) {
+            return "Amount cannot be empty";
+        }
+
+        try {
+            double a = Double.parseDouble(amount);
+
+            if (!Double.isFinite(a) || a <= 0) {
+                return "Enter a valid positive amount";
+            }
+
+            try (Connection c =
+                 DriverManager.getConnection(URL, USER, PWD)) {
+
+                String sql = "INSERT INTO fees VALUES (?, ?)";
+
+                try (PreparedStatement ps =
+                     c.prepareStatement(sql)) {
+
+                    ps.setString(1, regNo.trim());
+                    ps.setDouble(2, a);
+
+                    ps.executeUpdate();
+
+                    return "Payment Successful!";
+                }
+            }
+
+        } catch (NumberFormatException e) {
+            return "Please enter a valid amount";
+        } catch (SQLException e) {
+            return "Payment failed: " + e.getMessage();
+        }
+    }
+}
+
+
+
+Program 2: FeeWindow.java
+
+This class handles the GUI and user interactions using Java AWT.
+
+import java.awt.*;
+import java.awt.event.*;
+
+public class FeeWindow extends Frame {
+
+    TextField regNo = new TextField(20);
+    TextField amount = new TextField(20);
+
+    Button pay = new Button("Pay");
+    Button clear = new Button("Clear");
+    Button receipt = new Button("Receipt");
+
+    FeeService service = new FeeService();
+
+    public FeeWindow() {
+
+        setTitle("Student Fee Payment");
+        setSize(400, 250);
+        setLayout(new GridLayout(4, 2, 10, 10));
+
+        add(new Label("Registration Number:"));
+        add(regNo);
+
+        add(new Label("Amount:"));
+        add(amount);
+
+        add(pay);
+        add(clear);
+
+        add(receipt);
+
+        pay.addActionListener(e -> {
+
+            String r = regNo.getText();
+            String a = amount.getText();
+
+            pay.setEnabled(false);
+
+            new Thread(() -> {
+
+                String result = service.payFee(r, a);
+
+                EventQueue.invokeLater(() -> {
+                    pay.setEnabled(true);
+                    showMessage(result);
+                });
+
+            }).start();
+        });
+
+        clear.addActionListener(e -> {
+            regNo.setText("");
+            amount.setText("");
+        });
+
+        receipt.addActionListener(e -> {
+            showMessage("Receipt for Registration: "
+                        + regNo.getText());
+        });
+
+        addWindowListener(new WindowAdapter() {
+            public void windowClosing(WindowEvent e) {
+                dispose();
+            }
+        });
+
+        setVisible(true);
+    }
+
+    private void showMessage(String message) {
+        Dialog d = new Dialog(this, "Payment Status", true);
+        d.setLayout(new FlowLayout());
+
+        d.add(new Label(message));
+
+        Button ok = new Button("OK");
+        ok.addActionListener(e -> d.dispose());
+
+        d.add(ok);
+        d.setSize(300, 120);
+        d.setLocationRelativeTo(this);
+        d.setVisible(true);
+    }
+
+    public static void main(String[] args) {
+        EventQueue.invokeLater(() -> new FeeWindow());
+    }
+}
+
+
+
+4. Explanation of Event Handling
+Event	Handler action
+Pay button	Collects registration number and amount, then calls FeeService to validate and process payment in a separate thread.
+Clear button	Clears both input fields.
+Receipt button	Displays the registration number in a receipt information message.
+Window closing	Disposes the window properly.
+
+Important implementation points:
+1. FeeService separates payment processing from GUI operations.
+2. PreparedStatement prevents SQL injection through parameterized queries.
+3. Input validation prevents empty and invalid payment values.
+4. A separate thread performs database operations without freezing the GUI.
+5. EventQueue.invokeLater() updates the GUI safely after payment processing.
+6. Try-with-resources automatically closes the database connection and prepared statement.
+Note: The database URL, username, password and table structure must match your actual MySQL configuration. The Receipt button here is a basic placeholder; generating an actual receipt requires retrieving the payment details from the database.
+Task 1.3 – Design Defence (1 Mark)
+The redesigned program is easier to test and maintain because it separates the GUI from the business logic. The FeeWindow class is responsible only for collecting input and displaying results, while FeeService handles validation and database operations. Each component can be tested independently without running the entire application. Changes to payment processing do not affect the GUI design. Separate event handlers also make the program easier to understand, debug and extend.
+
+Alternative Concept and Complexity Analysis
+1. Alternative Design: Individual Listener Objects
+Instead of using one listener with an if–else chain, each button can have its own listener object.
+
+For example:
+
+pay.addActionListener(new ActionListener() {
+    public void actionPerformed(ActionEvent e) {
+        service.payFee(regNo.getText(), amount.getText());
+    }
+});
+
+clear.addActionListener(new ActionListener() {
+    public void actionPerformed(ActionEvent e) {
+        regNo.setText("");
+        amount.setText("");
+    }
+});
+
+receipt.addActionListener(new ActionListener() {
+    public void actionPerformed(ActionEvent e) {
+        showMessage("Receipt for " + regNo.getText());
+    }
+});
+
+
+
+In this approach:
+- Pay has its own listener.
+- Clear has its own listener.
+- Receipt has its own listener.
+- Each listener directly performs its assigned operation.
+- No if–else chain is required to identify the button.
+2. Time Complexity Analysis
+Let k represent the number of buttons.
+Approach	Event dispatch operation	Time complexity
+Single listener with if–else chain	Checks button commands one by one until a match is found.	O(k) worst case
+Individual listener objects	The event is delivered directly to the registered listener.	O(1) dispatch overhead
+
+Single listener:
+
+If there are k buttons, the program may perform up to k comparisons to identify the correct button.
+
+Therefore:
+\[
+T(k)=O(k)
+\]
+
+Individual listeners:
+
+Each button has its own registered listener. The event system invokes the corresponding listener without checking all button commands.
+
+Therefore:
+\[
+T(k)=O(1)
+\]
+
+This represents the dispatch overhead, excluding the actual work performed by the handler.
+3. Space Complexity Analysis
+Approach	Space complexity	Explanation
+Single listener	O(1) additional listener space	One shared listener object handles all buttons.
+Individual listeners	O(k)	Each button has a separate listener object.
+
+With individual listeners, memory usage increases as the number of buttons increases because each button maintains its own listener object.
+4. Comparison and Conclusion
+Parameter	Single Listener	Individual Listeners
+Number of listeners	One	k listeners
+Dispatch time	O(k) worst case	O(1) dispatch overhead
+Additional listener space	O(1)	O(k)
+Code organization	Less modular	More modular
+Maintainability	Difficult for large GUIs	Easier for large GUIs
+Event identification	Uses if–else conditions	Direct listener registration
+
+Conclusion:
+
+Individual listener objects provide better modularity and avoid repeated action-command comparisons. Although they require O(k) additional space, they are easier to maintain and extend when an application contains many buttons. Therefore, individual listeners or Swing Actions are preferable for larger event-driven GUI applications.
