@@ -1,8 +1,8 @@
 # STUDENT DETAILS
 
-**Name:** YAZHINI.E.M
+**Name: Poorvaja B
 
-**Register Number:** 192511165
+**Register Number:** 192473008
 
 **Course Name:** Java Programming
 
